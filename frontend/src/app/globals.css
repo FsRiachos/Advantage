@@ -1,0 +1,119 @@
+@import "tailwindcss";
+
+@theme {
+  --color-brand: #6366f1; /* Modern indigo */
+  --color-brand-light: #818cf8;
+  --color-brand-dark: #4f46e5;
+}
+
+html, body {
+  @apply bg-gradient-to-br from-indigo-50 via-white to-purple-50/30 text-slate-900 antialiased min-h-screen;
+}
+
+/* Ensure background covers entire viewport */
+#__next {
+  @apply min-h-screen;
+}
+
+/* Modern glass morphism effect */
+.glass {
+  @apply bg-white/80 backdrop-blur-sm border border-white/20;
+}
+
+/* Modern card with subtle animations */
+.payment-card {
+  @apply bg-white/90 backdrop-blur-sm border border-slate-200/60 rounded-2xl p-6 shadow-lg shadow-slate-200/50 hover:shadow-xl hover:shadow-slate-300/60 transition-all duration-300 hover:-translate-y-1;
+}
+
+/* Modern button styles */
+.btn-primary {
+  @apply bg-gradient-to-r from-indigo-600 to-indigo-700 hover:from-indigo-700 hover:to-indigo-800 text-white font-medium px-6 py-3 rounded-xl shadow-lg shadow-indigo-500/25 hover:shadow-xl hover:shadow-indigo-500/40 transition-all duration-200 transform hover:scale-105;
+}
+
+.btn-secondary {
+  @apply bg-white/90 backdrop-blur-sm border border-slate-300 hover:border-slate-400 text-slate-700 font-medium px-6 py-3 rounded-xl shadow-sm hover:shadow-md transition-all duration-200;
+}
+
+/* Status badge modern styles */
+.status-badge {
+  @apply inline-flex items-center px-3 py-1.5 rounded-full text-sm font-medium backdrop-blur-sm border;
+}
+
+.status-pending {
+  @apply status-badge bg-amber-100/80 text-amber-800 border-amber-200/60;
+}
+
+.status-verified {
+  @apply status-badge bg-emerald-100/80 text-emerald-800 border-emerald-200/60;
+}
+
+.status-rejected {
+  @apply status-badge bg-rose-100/80 text-rose-800 border-rose-200/60;
+}
+
+.status-processing {
+  @apply status-badge bg-blue-100/80 text-blue-800 border-blue-200/60;
+}
+
+/* Modern form inputs */
+.modern-input {
+  @apply w-full px-4 py-3 bg-white/80 backdrop-blur-sm border border-slate-300/60 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500 transition-all duration-200;
+}
+
+.modern-select {
+  @apply modern-input appearance-none cursor-pointer hover:bg-white/90;
+}
+
+/* Loading spinner modern */
+.loading-spinner {
+  @apply animate-spin h-5 w-5 text-indigo-600;
+}
+
+/* Modern header styles */
+.page-header {
+  @apply bg-gradient-to-r from-indigo-600 via-purple-600 to-indigo-600 bg-size-200 bg-pos-0 text-white rounded-3xl p-8 shadow-2xl shadow-indigo-500/25;
+}
+
+/* Modern section containers */
+.section-container {
+  @apply glass rounded-3xl p-8 shadow-xl border border-white/50;
+}
+
+/* Image preview modern styles */
+.image-preview {
+  @apply w-24 h-24 object-cover rounded-xl cursor-pointer transition-all duration-200 hover:scale-105 hover:shadow-lg border-2 border-white/50;
+}
+
+/* Modern animations */
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.fade-in-up {
+  animation: fadeInUp 0.6s ease-out;
+}
+
+/* Modern scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+}
+
+::-webkit-scrollbar-track {
+  @apply bg-slate-100/50;
+}
+
+::-webkit-scrollbar-thumb {
+  @apply bg-slate-300/60 rounded-full hover:bg-slate-400/80;
+}
+
+/* Modern focus styles */
+.focus-ring {
+  @apply focus:outline-none focus:ring-2 focus:ring-indigo-500/50 focus:ring-offset-2 focus:ring-offset-white;
+}
