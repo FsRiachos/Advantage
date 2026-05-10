@@ -14,8 +14,8 @@ export default function AdminDashboard() {
   const [athletes, setAthletes] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   
-  // NEW: State to handle the Inspection Modal
-  const [selectedPayment, setSelectedPayment] = useState<any>(null);
+  // NEW: State holds the entire array of payments for that specific month
+  const [selectedMonthData, setSelectedMonthData] = useState<any>(null);
   
   const router = useRouter();
 
@@ -31,10 +31,10 @@ export default function AdminDashboard() {
   };
 
   const fetchAdminData = async () => {
-    // NEW: We are now fetching the 'image_url' so you can see the receipt
+    // NEW: Added reject_reason and transaction_ref to the query
     const { data } = await supabase
       .from('athletes')
-      .select('*, payments(id, status, created_at, amount_detected, billing_month, image_url)')
+      .select('*, payments(id, status, created_at, amount_detected, billing_month, image_url, reject_reason, transaction_ref)')
       .order('name');
       
     setAthletes(data || []);
@@ -52,17 +52,16 @@ export default function AdminDashboard() {
     fetchAdminData();
   };
 
-  // NEW: Manual Override Functions
   const handleOverrideStatus = async (paymentId: string, newStatus: string) => {
     await supabase.from('payments').update({ status: newStatus }).eq('id', paymentId);
-    setSelectedPayment(null); // Close modal
-    fetchAdminData(); // Refresh data
+    setSelectedMonthData(null); // Close modal to refresh data cleanly
+    fetchAdminData();
   };
 
   const handleDeletePayment = async (paymentId: string) => {
-    if (!window.confirm("Are you sure you want to completely delete this payment record? The athlete will need to upload it again.")) return;
+    if (!window.confirm("Are you sure you want to completely delete this payment record?")) return;
     await supabase.from('payments').delete().eq('id', paymentId);
-    setSelectedPayment(null);
+    setSelectedMonthData(null); // Close modal to refresh data cleanly
     fetchAdminData();
   };
 
@@ -73,60 +72,90 @@ export default function AdminDashboard() {
   return (
     <div className="min-h-screen bg-[#f8fafc] pb-20 relative">
       
-      {/* NEW: Payment Inspection Modal */}
-      {selectedPayment && (
+      {/* NEW: Scrollable Payment Inspection Modal */}
+      {selectedMonthData && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm">
-          <div className="glass-panel w-full max-w-2xl bg-white rounded-3xl shadow-2xl overflow-hidden border border-slate-200">
+          <div className="glass-panel w-full max-w-3xl bg-white rounded-3xl shadow-2xl overflow-hidden border border-slate-200 flex flex-col max-h-[90vh]">
             
             {/* Modal Header */}
-            <div className="flex justify-between items-center p-6 border-b border-slate-100 bg-slate-50/50">
+            <div className="flex justify-between items-center p-6 border-b border-slate-100 bg-slate-50/50 flex-shrink-0">
               <div>
-                <h3 className="text-xl font-black text-slate-900">{selectedPayment.athleteName}</h3>
+                <h3 className="text-xl font-black text-slate-900">{selectedMonthData.athleteName}</h3>
                 <p className="text-sm font-bold text-slate-500">
-                  {selectedPayment.monthName} {currentYear} Receipt &middot; <span className={`uppercase tracking-wider ${selectedPayment.status === 'verified' ? 'text-emerald-500' : selectedPayment.status === 'rejected' ? 'text-rose-500' : 'text-amber-500'}`}>{selectedPayment.status}</span>
+                  {selectedMonthData.monthName} {currentYear} &middot; {selectedMonthData.payments.length} Upload Attempt(s)
                 </p>
               </div>
-              <button onClick={() => setSelectedPayment(null)} className="p-2 bg-slate-100 rounded-full hover:bg-slate-200 transition-colors text-slate-500">
+              <button onClick={() => setSelectedMonthData(null)} className="p-2 bg-slate-100 rounded-full hover:bg-slate-200 transition-colors text-slate-500">
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            {/* Modal Body */}
-            <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div className="bg-slate-100 rounded-2xl h-64 flex items-center justify-center overflow-hidden relative group">
-                {selectedPayment.image_url ? (
-                  <>
-                    <img src={selectedPayment.image_url} alt="Receipt" className="object-contain w-full h-full" />
-                    <a href={selectedPayment.image_url} target="_blank" rel="noreferrer" className="absolute bottom-4 right-4 bg-white/90 p-2 rounded-lg shadow opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-2 text-xs font-bold text-slate-700">
-                      <ExternalLink className="w-4 h-4" /> Open Full
-                    </a>
-                  </>
-                ) : (
-                  <span className="text-slate-400 font-bold">No Image Available</span>
-                )}
-              </div>
-              
-              <div className="flex flex-col justify-center space-y-4">
-                <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100">
-                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">AI Detected Amount</p>
-                  <p className="text-3xl font-black text-slate-900">
-                    {selectedPayment.amount_detected ? `€${selectedPayment.amount_detected}` : '—'}
-                  </p>
-                </div>
+            {/* Modal Body - Scrollable list of all attempts */}
+            <div className="overflow-y-auto p-6 flex-1 bg-white">
+              {selectedMonthData.payments.map((payment: any, index: number) => (
+                <div key={payment.id} className="mb-8 last:mb-0 pb-8 last:pb-0 border-b border-slate-100 last:border-0 grid grid-cols-1 md:grid-cols-2 gap-6 relative">
+                  
+                  {/* Attempt Number Badge */}
+                  <div className="absolute -top-3 -left-3 bg-slate-800 text-white text-[10px] font-black px-2 py-1 rounded-lg z-10 shadow-sm">
+                    ATTEMPT {selectedMonthData.payments.length - index}
+                  </div>
 
-                <div className="space-y-2 pt-2">
-                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2 ml-1">Manual Overrides</p>
-                  <button onClick={() => handleOverrideStatus(selectedPayment.id, 'verified')} className="w-full flex items-center justify-center gap-2 py-3 px-4 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-bold rounded-xl transition-colors">
-                    <CheckCircle className="w-5 h-5" /> Force Verify
-                  </button>
-                  <button onClick={() => handleOverrideStatus(selectedPayment.id, 'rejected')} className="w-full flex items-center justify-center gap-2 py-3 px-4 bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold rounded-xl transition-colors">
-                    <XCircle className="w-5 h-5" /> Reject Payment
-                  </button>
-                  <button onClick={() => handleDeletePayment(selectedPayment.id)} className="w-full flex items-center justify-center gap-2 py-3 px-4 text-slate-400 hover:text-rose-600 font-bold rounded-xl transition-colors mt-4">
-                    <Trash2 className="w-4 h-4" /> Delete Record
-                  </button>
+                  <div className="bg-slate-100 rounded-2xl h-64 flex items-center justify-center overflow-hidden relative group border border-slate-200">
+                    {payment.image_url ? (
+                      <>
+                        <img src={payment.image_url} alt="Receipt" className="object-contain w-full h-full" />
+                        <a href={payment.image_url} target="_blank" rel="noreferrer" className="absolute bottom-4 right-4 bg-white/90 p-2 rounded-lg shadow opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-2 text-xs font-bold text-slate-700">
+                          <ExternalLink className="w-4 h-4" /> Open Full
+                        </a>
+                      </>
+                    ) : (
+                      <span className="text-slate-400 font-bold">No Image Available</span>
+                    )}
+                  </div>
+                  
+                  <div className="flex flex-col justify-center space-y-4">
+                    <div className="flex justify-between items-start">
+                      <div>
+                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Status</p>
+                        <span className={`px-3 py-1 rounded-full text-xs font-black uppercase tracking-wider ${payment.status === 'verified' ? 'bg-emerald-100 text-emerald-700' : payment.status === 'rejected' ? 'bg-rose-100 text-rose-700' : 'bg-amber-100 text-amber-700'}`}>
+                          {payment.status}
+                        </span>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Detected</p>
+                        <p className="text-2xl font-black text-slate-900">
+                          {payment.amount_detected ? `€${payment.amount_detected}` : '—'}
+                        </p>
+                      </div>
+                    </div>
+
+                    {payment.reject_reason && (
+                      <div className="p-3 bg-rose-50 border border-rose-100 rounded-xl">
+                         <p className="text-[10px] font-bold text-rose-400 uppercase tracking-widest mb-1">AI Reason</p>
+                         <p className="text-xs text-rose-700 font-medium">{payment.reject_reason}</p>
+                      </div>
+                    )}
+                    
+                    {payment.transaction_ref && payment.transaction_ref !== 'UNKNOWN' && (
+                       <p className="text-[10px] font-bold text-slate-400"><span className="uppercase tracking-widest">Fingerprint:</span> {payment.transaction_ref}</p>
+                    )}
+
+                    <div className="space-y-2 pt-2 border-t border-slate-100">
+                      <div className="flex gap-2">
+                        <button onClick={() => handleOverrideStatus(payment.id, 'verified')} className="flex-1 flex items-center justify-center gap-1.5 py-2 px-3 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-bold rounded-xl transition-colors text-xs">
+                          <CheckCircle className="w-4 h-4" /> Verify
+                        </button>
+                        <button onClick={() => handleOverrideStatus(payment.id, 'rejected')} className="flex-1 flex items-center justify-center gap-1.5 py-2 px-3 bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold rounded-xl transition-colors text-xs">
+                          <XCircle className="w-4 h-4" /> Reject
+                        </button>
+                      </div>
+                      <button onClick={() => handleDeletePayment(payment.id)} className="w-full flex items-center justify-center gap-2 py-2 px-4 text-slate-400 hover:text-rose-600 font-bold rounded-xl transition-colors mt-2 text-xs">
+                        <Trash2 className="w-4 h-4" /> Delete Record
+                      </button>
+                    </div>
+                  </div>
                 </div>
-              </div>
+              ))}
             </div>
           </div>
         </div>
@@ -152,22 +181,27 @@ export default function AdminDashboard() {
             const monthStatuses = monthInitials.map((initial, index) => {
               const billingMonthStr = `${currentYear}-${String(index + 1).padStart(2, '0')}`;
               
-              const pay = a.payments?.find((p: any) => {
+              // NEW: Get an array of ALL payments for this specific month
+              const monthPayments = a.payments?.filter((p: any) => {
                 if (p.billing_month) return p.billing_month === billingMonthStr;
                 return new Date(p.created_at).getMonth() === index && new Date(p.created_at).getFullYear() === currentYear;
-              });
+              }) || [];
+
+              // Sort newest first
+              monthPayments.sort((p1: any, p2: any) => new Date(p2.created_at).getTime() - new Date(p1.created_at).getTime());
 
               let status = 'future';
               let bgColor = 'bg-slate-100 text-slate-400';
               let ring = '';
 
-              if (pay?.status === 'verified') {
+              // Determine the color of the square based on the best/newest status
+              if (monthPayments.some((p: any) => p.status === 'verified')) {
                 status = 'paid';
                 bgColor = 'bg-emerald-500 text-white shadow-sm shadow-emerald-200';
-              } else if (pay?.status === 'pending' || pay?.status === 'processing') {
+              } else if (monthPayments.some((p: any) => p.status === 'pending' || p.status === 'processing')) {
                 status = 'pending';
                 bgColor = 'bg-amber-400 text-white animate-pulse';
-              } else if (pay?.status === 'rejected') {
+              } else if (monthPayments.some((p: any) => p.status === 'rejected')) {
                 status = 'rejected';
                 bgColor = 'bg-rose-600 text-white shadow-sm shadow-rose-200';
               } else if (index < currentMonthIndex) {
@@ -180,7 +214,7 @@ export default function AdminDashboard() {
                 ring = 'ring-2 ring-indigo-400 ring-offset-2';
               }
 
-              return { initial, name: fullMonths[index], status, bgColor, ring, paymentData: pay };
+              return { initial, name: fullMonths[index], status, bgColor, ring, paymentsArray: monthPayments };
             });
 
             return (
@@ -207,12 +241,12 @@ export default function AdminDashboard() {
                     {monthStatuses.map((m, i) => (
                       <div 
                         key={i} 
-                        // NEW: Make the square clickable if a payment record exists
-                        onClick={() => m.paymentData ? setSelectedPayment({ ...m.paymentData, athleteName: a.name, monthName: m.name }) : null}
-                        title={`${m.name}: ${m.status.toUpperCase()}${m.paymentData ? ' (Click to inspect)' : ''}`}
+                        // OPEN MODAL with the whole array of payments
+                        onClick={() => m.paymentsArray.length > 0 ? setSelectedMonthData({ athleteName: a.name, monthName: m.name, payments: m.paymentsArray }) : null}
+                        title={`${m.name}: ${m.status.toUpperCase()}${m.paymentsArray.length > 0 ? ` (${m.paymentsArray.length} uploads)` : ''}`}
                         className={`w-7 h-7 sm:w-8 sm:h-8 rounded-lg flex items-center justify-center text-[10px] sm:text-xs font-bold transition-all 
                           ${m.bgColor} ${m.ring} 
-                          ${m.paymentData ? 'cursor-pointer hover:scale-110 ring-2 ring-transparent hover:ring-indigo-300 ring-offset-1' : 'cursor-default'}`}
+                          ${m.paymentsArray.length > 0 ? 'cursor-pointer hover:scale-110 ring-2 ring-transparent hover:ring-indigo-300 ring-offset-1' : 'cursor-default'}`}
                       >
                         {m.initial}
                       </div>

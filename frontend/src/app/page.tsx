@@ -3,8 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { createClient } from '@supabase/supabase-js';
-import { Upload, CheckCircle2, XCircle, Loader2, Hourglass, CalendarDays, Sparkles, AlertCircle } from 'lucide-react';
-
+import { Upload, CheckCircle2, XCircle, Loader2, Hourglass, CalendarDays, Trophy, AlertCircle, AlertTriangle } from 'lucide-react';
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
@@ -19,7 +18,6 @@ export default function Home() {
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState('');
   
-  // New State for Interactive Calendar
   const currentYear = new Date().getFullYear();
   const currentMonthIndex = new Date().getMonth();
   const [selectedMonthIndex, setSelectedMonthIndex] = useState<number | null>(currentMonthIndex);
@@ -44,11 +42,12 @@ export default function Home() {
     }
     setAthlete(athleteData);
 
+    // IMPORTANT: Changed to descending so we always evaluate their most recent upload attempt
     const { data: payData } = await supabase
       .from('payments')
       .select('*')
       .eq('athlete_id', athleteData.id)
-      .order('created_at', { ascending: true });
+      .order('created_at', { ascending: false });
 
     setPayments(payData || []);
   };
@@ -67,7 +66,6 @@ export default function Home() {
 
       const { data: { publicUrl } } = supabase.storage.from('Receipts').getPublicUrl(fileName);
 
-      // Create the billing_month string (e.g., "2026-05")
       const billingMonthStr = `${currentYear}-${String(selectedMonthIndex + 1).padStart(2, '0')}`;
 
       const { data: paymentData } = await supabase
@@ -76,7 +74,7 @@ export default function Home() {
           athlete_id: athlete.id, 
           image_url: publicUrl, 
           status: 'pending',
-          billing_month: billingMonthStr // <--- Now tied to the specific month!
+          billing_month: billingMonthStr 
         })
         .select().single();
 
@@ -90,6 +88,9 @@ export default function Home() {
     } finally {
       setUploading(false);
     }
+
+    event.target.value = '';
+
   };
 
   useEffect(() => { loadPrivateData(); }, [token]);
@@ -97,19 +98,43 @@ export default function Home() {
   if (error) return <div className="min-h-screen flex items-center justify-center font-bold text-slate-400">{error}</div>;
   if (!athlete) return <div className="min-h-screen flex items-center justify-center animate-pulse">Loading Secure Portal...</div>;
 
+  // Find the currently selected payment to display dynamic feedback
+  const selectedBillingMonthStr = selectedMonthIndex !== null ? `${currentYear}-${String(selectedMonthIndex + 1).padStart(2, '0')}` : null;
+  const selectedPaymentInfo = selectedMonthIndex !== null ? payments.find(p => {
+    if (p.billing_month) return p.billing_month === selectedBillingMonthStr;
+    return new Date(p.created_at).getMonth() === selectedMonthIndex && new Date(p.created_at).getFullYear() === currentYear;
+  }) : null;
+
   return (
     <div className="min-h-screen pb-20">
       <div className="fixed top-0 left-0 right-0 h-[400px] bg-gradient-to-b from-indigo-100/50 to-transparent -z-20" />
       
       <div className="max-w-6xl mx-auto px-6 pt-12">
-        <header className="mb-12">
-          <div className="inline-flex items-center gap-2 px-3 py-1 bg-indigo-600 text-white rounded-lg text-[10px] font-black uppercase tracking-tighter mb-4">
-            <Sparkles className="w-3 h-3" /> Secure Portal
+        <header className="mb-12 flex flex-col-reverse sm:flex-row justify-between items-start sm:items-center gap-6">
+          
+          {/* Left Side: Greeting */}
+          <div>
+            <h1 className="text-4xl font-black tracking-tight text-slate-900">
+              HELLO, {athlete.name.split(' ')[0].toUpperCase()}<span className="text-indigo-600">.</span>
+            </h1>
+            <p className="text-slate-500 font-medium mt-1">Your monthly club fee is <span className="text-indigo-600 font-bold">€{athlete.monthly_fee}</span></p>
           </div>
-          <h1 className="text-4xl font-black tracking-tight text-slate-900">
-            HELLO, {athlete.name.split(' ')[0].toUpperCase()}<span className="text-indigo-600">.</span>
-          </h1>
-          <p className="text-slate-500 font-medium mt-1">Your monthly club fee is <span className="text-indigo-600 font-bold">€{athlete.monthly_fee}</span></p>
+
+          {/* Right Side: Club Logo & Name */}
+          <div className="flex items-center gap-4 bg-white/40 px-4 py-2.5 rounded-2xl border border-slate-200/60 shadow-sm backdrop-blur-sm">
+            <div className="text-right">
+              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-0.5">Official Portal</p>
+              <p className="text-base md:text-xl font-black text-slate-900 tracking-tight leading-none">
+                Clube Ténis da Golegã
+              </p>
+            </div>
+            <img 
+              src="/ctg.jpeg" 
+              alt="Clube Ténis da Golegã" 
+              className="w-12 h-12 md:w-16 md:h-16 object-cover rounded-xl shadow-sm border border-slate-200" 
+            />
+          </div>
+
         </header>
 
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-10">
@@ -124,7 +149,6 @@ export default function Home() {
               {months.map((monthName, index) => {
                 const billingMonthStr = `${currentYear}-${String(index + 1).padStart(2, '0')}`;
                 
-                // Find payment using the new billing_month, fallback to created_at for older data
                 const paymentForMonth = payments.find(p => {
                   if (p.billing_month) return p.billing_month === billingMonthStr;
                   return new Date(p.created_at).getMonth() === index && new Date(p.created_at).getFullYear() === currentYear;
@@ -133,10 +157,12 @@ export default function Home() {
                 const isFuture = index > currentMonthIndex;
                 const isSelected = selectedMonthIndex === index;
                 
-                // Determine interactivity
                 const isPaid = paymentForMonth?.status === 'verified';
                 const isPending = paymentForMonth?.status === 'pending' || paymentForMonth?.status === 'processing';
-                const canSelect = !isFuture && !isPaid && !isPending;
+                const isRejected = paymentForMonth?.status === 'rejected';
+                
+                // Allow selection if it's not a future month
+                const canSelect = !isFuture;
 
                 return (
                   <div 
@@ -151,15 +177,16 @@ export default function Home() {
                     <div className="flex justify-between items-start mb-4">
                       <p className={`text-sm font-bold ${isSelected ? 'text-indigo-600' : 'text-slate-500'}`}>{monthName}</p>
                       {isPending && <span className="text-[9px] font-bold text-amber-500 uppercase tracking-widest bg-amber-50 px-2 py-0.5 rounded">Pending</span>}
+                      {isRejected && <span className="text-[9px] font-bold text-rose-500 uppercase tracking-widest bg-rose-50 px-2 py-0.5 rounded">Rejected</span>}
                     </div>
                     
                     <div className="flex items-center justify-center h-12">
                       {isPaid && <CheckCircle2 className="w-10 h-10 text-emerald-500" />}
                       {isPending && <Loader2 className="w-8 h-8 text-amber-500 animate-spin" />}
-                      {!isPaid && !isPending && !isFuture && (
+                      {(!isPaid && !isPending && !isFuture) && (
                         <div className="text-center group">
                            <XCircle className={`w-8 h-8 mx-auto ${isSelected ? 'text-indigo-400' : 'text-rose-400'}`} />
-                           {canSelect && <p className="text-[10px] font-bold text-indigo-500 opacity-0 group-hover:opacity-100 transition-opacity mt-1">Tap to pay</p>}
+                           {canSelect && !isPaid && <p className="text-[10px] font-bold text-indigo-500 opacity-0 group-hover:opacity-100 transition-opacity mt-1">Tap to pay</p>}
                         </div>
                       )}
                       {isFuture && (
@@ -175,12 +202,52 @@ export default function Home() {
             </div>
           </div>
 
-          {/* Dynamic Upload Form */}
+          {/* Dynamic Action Panel */}
           <div className="lg:col-span-4">
             <div className={`glass-panel rounded-3xl p-8 sticky top-12 border transition-all duration-300 ${selectedMonthIndex !== null ? 'border-indigo-200 shadow-xl shadow-indigo-500/10' : 'border-slate-200 opacity-70'}`}>
               
-              {selectedMonthIndex !== null ? (
+              {selectedMonthIndex === null ? (
+                <div className="text-center py-12">
+                  <AlertCircle className="w-12 h-12 text-slate-300 mx-auto mb-4" />
+                  <h3 className="font-bold text-slate-900 mb-2">Select a Month</h3>
+                  <p className="text-sm text-slate-500">Tap a month on the calendar to view status or upload a receipt.</p>
+                </div>
+              ) : selectedPaymentInfo?.status === 'verified' ? (
+                <div className="text-center py-8">
+                  <div className="w-16 h-16 bg-emerald-100 text-emerald-500 rounded-full flex items-center justify-center mx-auto mb-4">
+                    <CheckCircle2 className="w-8 h-8" />
+                  </div>
+                  <h3 className="text-xl font-bold text-slate-900 mb-2">Payment Verified</h3>
+                  <p className="text-sm font-medium text-slate-500 mb-6">
+                    Your club fee for <strong className="text-slate-900">{months[selectedMonthIndex]} {currentYear}</strong> is paid and confirmed. Thank you!
+                  </p>
+                </div>
+              ) : selectedPaymentInfo?.status === 'pending' || selectedPaymentInfo?.status === 'processing' ? (
+                <div className="text-center py-8">
+                  <div className="w-16 h-16 bg-amber-100 text-amber-500 rounded-full flex items-center justify-center mx-auto mb-4">
+                    <Loader2 className="w-8 h-8 animate-spin" />
+                  </div>
+                  <h3 className="text-xl font-bold text-slate-900 mb-2">Verifying Payment...</h3>
+                  <p className="text-sm font-medium text-slate-500 mb-6">
+                    Our AI is currently analyzing your receipt for <strong className="text-slate-900">{months[selectedMonthIndex]} {currentYear}</strong>. This usually takes about 10 seconds.
+                  </p>
+                  <button onClick={loadPrivateData} className="text-xs font-bold text-indigo-600 hover:text-indigo-800">Refresh Status</button>
+                </div>
+              ) : (
+                // Show Upload Form (Handles both "No Payment" and "Rejected" states)
                 <>
+                  {selectedPaymentInfo?.status === 'rejected' && (
+                    <div className="mb-6 p-4 bg-rose-50 border border-rose-100 rounded-xl">
+                      <div className="flex items-start gap-3">
+                        <AlertTriangle className="w-5 h-5 text-rose-500 flex-shrink-0 mt-0.5" />
+                        <div>
+                          <h4 className="text-sm font-bold text-rose-800">Payment Rejected</h4>
+                          <p className="text-xs text-rose-600 mt-1">{selectedPaymentInfo.reject_reason || "The uploaded receipt was not accepted."}</p>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
                   <h2 className="text-xl font-bold mb-2 flex items-center gap-3 text-slate-900">
                     <Upload className="w-5 h-5 text-indigo-600" /> Submit Receipt
                   </h2>
@@ -201,21 +268,28 @@ export default function Home() {
                   {uploading && (
                     <div className="mt-4 bg-indigo-600 text-white rounded-xl p-4 flex items-center justify-center gap-3 shadow-lg shadow-indigo-200">
                       <Loader2 className="w-5 h-5 animate-spin" />
-                      <span className="text-sm font-bold">AI Verifying...</span>
+                      <span className="text-sm font-bold">AI Analyzing...</span>
                     </div>
                   )}
                 </>
-              ) : (
-                <div className="text-center py-12">
-                  <AlertCircle className="w-12 h-12 text-slate-300 mx-auto mb-4" />
-                  <h3 className="font-bold text-slate-900 mb-2">Select a Month</h3>
-                  <p className="text-sm text-slate-500">Tap an unpaid month on the calendar to upload a receipt.</p>
-                </div>
               )}
             </div>
           </div>
 
         </div>
+        <footer className="mt-16 pt-8 pb-4 border-t border-slate-200/60">
+          <div className="flex flex-col md:flex-row justify-between items-center gap-4">
+            <p className="text-[10px] text-slate-400 font-medium max-w-2xl text-center md:text-left leading-relaxed">
+              <strong>Privacy Notice (GDPR):</strong> Uploaded receipts are processed securely by AI solely for the purpose of verifying monthly club fees. Your financial data is never used for advertising. You retain the right to request the deletion of your data and images at any time by contacting your club administrator.
+            </p>
+            <div className="flex items-center gap-3 text-[10px] text-slate-300 font-bold uppercase tracking-widest whitespace-nowrap">
+              <span>Secure Portal</span>
+              <span>&middot;</span>
+              <span>AI Verified</span>
+            </div>
+          </div>
+        </footer>
+
       </div>
     </div>
   );
