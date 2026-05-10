@@ -1,15 +1,17 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { createClient } from '@supabase/supabase-js';
 import { Upload, CheckCircle2, XCircle, Loader2, Hourglass, CalendarDays, Trophy, AlertCircle, AlertTriangle } from 'lucide-react';
+
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 );
 
-export default function Home() {
+// Notice: Removed "export default" from here!
+function PortalContent() {
   const searchParams = useSearchParams();
   const token = searchParams.get('token');
 
@@ -42,7 +44,6 @@ export default function Home() {
     }
     setAthlete(athleteData);
 
-    // IMPORTANT: Changed to descending so we always evaluate their most recent upload attempt
     const { data: payData } = await supabase
       .from('payments')
       .select('*')
@@ -87,10 +88,8 @@ export default function Home() {
       alert('Upload failed. Check your connection.');
     } finally {
       setUploading(false);
+      event.target.value = '';
     }
-
-    event.target.value = '';
-
   };
 
   useEffect(() => { loadPrivateData(); }, [token]);
@@ -98,7 +97,6 @@ export default function Home() {
   if (error) return <div className="min-h-screen flex items-center justify-center font-bold text-slate-400">{error}</div>;
   if (!athlete) return <div className="min-h-screen flex items-center justify-center animate-pulse">Loading Secure Portal...</div>;
 
-  // Find the currently selected payment to display dynamic feedback
   const selectedBillingMonthStr = selectedMonthIndex !== null ? `${currentYear}-${String(selectedMonthIndex + 1).padStart(2, '0')}` : null;
   const selectedPaymentInfo = selectedMonthIndex !== null ? payments.find(p => {
     if (p.billing_month) return p.billing_month === selectedBillingMonthStr;
@@ -112,7 +110,6 @@ export default function Home() {
       <div className="max-w-6xl mx-auto px-6 pt-12">
         <header className="mb-12 flex flex-col-reverse sm:flex-row justify-between items-start sm:items-center gap-6">
           
-          {/* Left Side: Greeting */}
           <div>
             <h1 className="text-4xl font-black tracking-tight text-slate-900">
               HELLO, {athlete.name.split(' ')[0].toUpperCase()}<span className="text-indigo-600">.</span>
@@ -120,7 +117,6 @@ export default function Home() {
             <p className="text-slate-500 font-medium mt-1">Your monthly club fee is <span className="text-indigo-600 font-bold">€{athlete.monthly_fee}</span></p>
           </div>
 
-          {/* Right Side: Club Logo & Name */}
           <div className="flex items-center gap-4 bg-white/40 px-4 py-2.5 rounded-2xl border border-slate-200/60 shadow-sm backdrop-blur-sm">
             <div className="text-right">
               <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-0.5">Official Portal</p>
@@ -139,7 +135,6 @@ export default function Home() {
 
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-10">
           
-          {/* Calendar Feed */}
           <div className="lg:col-span-8 space-y-6">
             <h2 className="text-2xl font-black text-slate-900 flex items-center gap-3 mb-6">
               <CalendarDays className="w-6 h-6 text-indigo-600" /> {currentYear} Billing Cycle
@@ -161,7 +156,6 @@ export default function Home() {
                 const isPending = paymentForMonth?.status === 'pending' || paymentForMonth?.status === 'processing';
                 const isRejected = paymentForMonth?.status === 'rejected';
                 
-                // Allow selection if it's not a future month
                 const canSelect = !isFuture;
 
                 return (
@@ -202,7 +196,6 @@ export default function Home() {
             </div>
           </div>
 
-          {/* Dynamic Action Panel */}
           <div className="lg:col-span-4">
             <div className={`glass-panel rounded-3xl p-8 sticky top-12 border transition-all duration-300 ${selectedMonthIndex !== null ? 'border-indigo-200 shadow-xl shadow-indigo-500/10' : 'border-slate-200 opacity-70'}`}>
               
@@ -234,7 +227,6 @@ export default function Home() {
                   <button onClick={loadPrivateData} className="text-xs font-bold text-indigo-600 hover:text-indigo-800">Refresh Status</button>
                 </div>
               ) : (
-                // Show Upload Form (Handles both "No Payment" and "Rejected" states)
                 <>
                   {selectedPaymentInfo?.status === 'rejected' && (
                     <div className="mb-6 p-4 bg-rose-50 border border-rose-100 rounded-xl">
@@ -277,6 +269,7 @@ export default function Home() {
           </div>
 
         </div>
+        
         <footer className="mt-16 pt-8 pb-4 border-t border-slate-200/60">
           <div className="flex flex-col md:flex-row justify-between items-center gap-4">
             <p className="text-[10px] text-slate-400 font-medium max-w-2xl text-center md:text-left leading-relaxed">
@@ -292,5 +285,13 @@ export default function Home() {
 
       </div>
     </div>
+  );
+}
+
+export default function Home() {
+  return (
+    <Suspense fallback={<div className="min-h-screen flex items-center justify-center font-bold text-slate-400 animate-pulse">Loading Secure Portal...</div>}>
+      <PortalContent />
+    </Suspense>
   );
 }
