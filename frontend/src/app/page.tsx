@@ -4,6 +4,7 @@ import React, { useState, useEffect, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { createClient } from '@supabase/supabase-js';
 import { Upload, CheckCircle2, XCircle, Loader2, Hourglass, CalendarDays, Trophy, AlertCircle, AlertTriangle } from 'lucide-react';
+import { Analytics } from "@vercel/analytics/next"
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -284,6 +285,7 @@ function PortalContent() {
         </footer>
 
       </div>
+      <Analytics />
     </div>
   );
 }

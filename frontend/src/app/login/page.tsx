@@ -2,7 +2,7 @@
 import { useState } from 'react';
 import { createClient } from '@supabase/supabase-js';
 import { useRouter } from 'next/navigation';
-
+import { Analytics } from "@vercel/analytics/next"
 const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!);
 
 export default function LoginPage() {
@@ -59,6 +59,7 @@ export default function LoginPage() {
           </button>
         </form>
       </div>
+      <Analytics />
     </div>
   );
 }

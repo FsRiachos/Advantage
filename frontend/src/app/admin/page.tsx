@@ -7,6 +7,7 @@ import {
   XCircle, Trash2, ExternalLink, UserPlus, FileText, Plus, Upload, Loader2, Mail 
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
+import { Analytics } from "@vercel/analytics/next"
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!, 
@@ -315,6 +316,7 @@ export default function AdminDashboard() {
                     <Share2 className="w-4 h-4" /> Copy Link
                   </button>
                 </div>
+                <Analytics />
               </div>
             );
           })}
