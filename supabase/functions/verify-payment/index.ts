@@ -1,110 +1,120 @@
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
+import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.7.1";
+import { encode } from "https://deno.land/std@0.168.0/encoding/base64.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-}
+};
 
 serve(async (req) => {
-  if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders })
+  if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
 
   try {
-    const { imageUrl, paymentId } = await req.json()
-    const supabaseUrl = Deno.env.get('SUPABASE_URL')
-    const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')
-    const geminiApiKey = Deno.env.get('GEMINI_API_KEY')
+    console.log("1. Edge Function Triggered!");
+    const { imageUrl, paymentIds, expectedAmount } = await req.json();
+    console.log(`2. Payload received: Amount: €${expectedAmount}, IDs: ${paymentIds.length}`);
 
-    const supabase = createClient(supabaseUrl!, supabaseKey!)
+    const supabase = createClient(
+      Deno.env.get('SUPABASE_URL') ?? '',
+      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
+    );
 
-    // Fetch and safely convert image to base64
-    const imageResponse = await fetch(imageUrl)
-    const arrayBuffer = await imageResponse.arrayBuffer()
-    const bytes = new Uint8Array(arrayBuffer);
-    let binary = '';
-    for (let i = 0; i < bytes.byteLength; i++) {
-      binary += String.fromCharCode(bytes[i]);
-    }
-    const base64Image = btoa(binary);
+    console.log("3. Fetching and encoding image...");
+    const imageRes = await fetch(imageUrl);
+    const arrayBuffer = await imageRes.arrayBuffer();
+    const base64Image = encode(new Uint8Array(arrayBuffer));
 
-    // Call Gemini AI
-    const geminiPayload = {
-      contents: [{
-        parts: [
-          { text: "Analyze this payment receipt screenshot. Extract 3 things: 1. The total amount paid (number only). 2. The phone's system time from the top status bar (e.g., '12:21'). 3. The battery percentage from the top status bar (number only, e.g., '52'). Return ONLY a raw JSON object with no markdown formatting: {\"amount\": 30.00, \"time\": \"12:21\", \"battery\": \"52\"}. If time or battery are cropped/missing, use \"UNKNOWN\"." },
-          { inline_data: { mime_type: "image/jpeg", data: base64Image } }
-        ]
-      }]
-    }
+    console.log("4. Calling Gemini AI...");
+    const GEMINI_API_KEY = Deno.env.get('GEMINI_API_KEY');
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${GEMINI_API_KEY}`;
 
-    const aiResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${geminiApiKey}`, {
+    const aiResponse = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(geminiPayload)
-    })
+      body: JSON.stringify({
+        contents: [{
+          parts: [
+            { text: `Analyze this screenshot. Extract exactly two things:
+              1. The total transfer amount.
+              2. A "fingerprint" from the device status bar at the very top (Combine the Time and Battery percentage, e.g., "14:38-82%").
+              
+              Return ONLY a raw JSON object: {"amount": 30.00, "fingerprint": "14:38-82%"}. 
+              If you cannot find the amount, use null. If you cannot find the status bar, use "unknown". Do not use markdown.` 
+            },
+            { inline_data: { mime_type: "image/jpeg", data: base64Image } }
+          ]
+        }]
+      })
+    });
 
-    const aiData = await aiResponse.json()
-    if (!aiData.candidates || !aiData.candidates[0]) {
-      throw new Error("Google Gemini API rejected the request.");
+    const aiResult = await aiResponse.json();
+    console.log("5. Raw Gemini Response:", JSON.stringify(aiResult).substring(0, 200) + "..."); // Log the first 200 chars
+
+    // Safely check if Gemini actually returned an answer or an error
+    if (!aiResult.candidates || aiResult.candidates.length === 0) {
+       throw new Error("Gemini returned an empty response. Check API Key or image quality.");
     }
 
-    // Parse AI Response
-    const aiText = aiData.candidates[0].content.parts[0].text
-    const cleanedText = aiText.replace(/```json/gi, '').replace(/```/g, '').trim();
-    const extractedData = JSON.parse(cleanedText);
+    const rawText = aiResult.candidates[0].content.parts[0].text;
+    const cleanJson = rawText.replace(/```json/g, '').replace(/```/g, '').trim();
+    const parsed = JSON.parse(cleanJson);
     
-    const detectedAmount = extractedData.amount
-    
-    let fingerprint = "UNKNOWN";
-    if (extractedData.time !== "UNKNOWN" && extractedData.battery !== "UNKNOWN") {
-      fingerprint = `${extractedData.time}-${extractedData.battery}`;
-    }
+    const detectedAmount = parsed.amount;
+    const detectedFingerprint = parsed.fingerprint;
+    console.log(`6. Extracted Data -> Amount: ${detectedAmount}, Fingerprint: ${detectedFingerprint}`);
 
-    // 1. Anti-Fraud Duplicate Check
-    if (fingerprint !== "UNKNOWN") {
-      const { data: existingPayments } = await supabase
+    let status = 'verified';
+    let rejectReason = null;
+
+    if (detectedFingerprint && detectedFingerprint !== "unknown") {
+      const { data: duplicate } = await supabase
         .from('payments')
         .select('id')
-        .eq('transaction_ref', fingerprint)
-        .neq('id', paymentId);
+        .eq('transaction_ref', detectedFingerprint)
+        .eq('status', 'verified')
+        .maybeSingle();
 
-      if (existingPayments && existingPayments.length > 0) {
-        await supabase.from('payments').update({ 
-          status: 'rejected',
-          amount_detected: detectedAmount,
-          transaction_ref: fingerprint,
-          reject_reason: 'Duplicate receipt detected. This transaction has already been submitted.'
-        }).eq('id', paymentId);
-
-        return new Response(JSON.stringify({ success: true, status: 'rejected - duplicate' }), { headers: corsHeaders });
+      if (duplicate) {
+        console.log("7. DUPLICATE FOUND!");
+        status = 'rejected';
+        rejectReason = "Duplicate screenshot detected";
       }
     }
 
-    // 2. Amount Check against Athlete's Required Fee
-    const { data: paymentRecord } = await supabase.from('payments').select('athlete_id').eq('id', paymentId).single()
-    const { data: athlete } = await supabase.from('athletes').select('monthly_fee').eq('id', paymentRecord.athlete_id).single()
-
-    let finalStatus = 'rejected'
-    let reason = 'The uploaded receipt does not match your required monthly fee.'
-
-    if (detectedAmount >= athlete.monthly_fee) {
-      finalStatus = 'verified'
-      reason = null
+    if (status !== 'rejected') {
+      if (detectedAmount === null) {
+        status = 'rejected';
+        rejectReason = "AI could not read the amount. Please ensure the receipt is clear.";
+      } else if (Math.abs(detectedAmount - expectedAmount) > 0.05) {
+        status = 'rejected';
+        rejectReason = `Amount mismatch. Expected €${expectedAmount.toFixed(2)}, but detected €${detectedAmount.toFixed(2)}.`;
+      }
     }
 
-    // Final Database Update
-    await supabase.from('payments').update({ 
-      status: finalStatus, 
-      amount_detected: detectedAmount,
-      transaction_ref: fingerprint,
-      reject_reason: reason
-    }).eq('id', paymentId)
+    console.log(`8. Final Status: ${status}. Updating database...`);
+    const { error: dbError } = await supabase
+      .from('payments')
+      .update({ 
+        status: status, 
+        amount_detected: detectedAmount, 
+        reject_reason: rejectReason,
+        transaction_ref: detectedFingerprint 
+      })
+      .in('id', paymentIds);
 
-    return new Response(JSON.stringify({ success: true, status: finalStatus }), { headers: { ...corsHeaders, "Content-Type": "application/json" } })
+    if (dbError) throw dbError;
 
-  } catch (err) {
-    // Keep minimum error tracking for major server crashes
-    console.error("[FATAL ERROR]", err);
-    return new Response(JSON.stringify({ error: err.message }), { status: 500, headers: corsHeaders })
+    console.log("9. Success! Database updated.");
+    return new Response(JSON.stringify({ status, detectedAmount }), {
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+    });
+
+  } catch (error) {
+    console.error("CRITICAL ERROR IN EDGE FUNCTION:", error.message);
+    return new Response(JSON.stringify({ error: error.message }), {
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      status: 500
+    });
   }
-})
+});

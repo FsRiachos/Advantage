@@ -3,15 +3,14 @@
 import React, { useState, useEffect, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { createClient } from '@supabase/supabase-js';
-import { Upload, CheckCircle2, XCircle, Loader2, Hourglass, CalendarDays, Trophy, AlertCircle, AlertTriangle } from 'lucide-react';
-import { Analytics } from "@vercel/analytics/next"
+import { Upload, CheckCircle2, XCircle, Loader2, Hourglass, CalendarDays, AlertCircle, AlertTriangle, CheckSquare, Square } from 'lucide-react';
+import { Analytics } from '@vercel/analytics/next';
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 );
 
-// Notice: Removed "export default" from here!
 function PortalContent() {
   const searchParams = useSearchParams();
   const token = searchParams.get('token');
@@ -23,7 +22,9 @@ function PortalContent() {
   
   const currentYear = new Date().getFullYear();
   const currentMonthIndex = new Date().getMonth();
-  const [selectedMonthIndex, setSelectedMonthIndex] = useState<number | null>(currentMonthIndex);
+  
+  const [selectedMonthIndex, setSelectedMonthIndex] = useState<number | null>(null);
+  const [selectedMonthsForPayment, setSelectedMonthsForPayment] = useState<string[]>([]);
 
   const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
@@ -54,9 +55,28 @@ function PortalContent() {
     setPayments(payData || []);
   };
 
+  const getPaymentStatusForMonthStr = (monthStr: string) => {
+    const payment = payments.find(p => p.billing_month === monthStr);
+    return payment ? payment.status : 'unpaid';
+  };
+
+  const handleMonthClick = (index: number) => {
+    setSelectedMonthIndex(index);
+    const clickedMonthStr = `${currentYear}-${String(index + 1).padStart(2, '0')}`;
+    setSelectedMonthsForPayment([clickedMonthStr]);
+  };
+
+  const toggleMonthSelection = (monthStr: string) => {
+    setSelectedMonthsForPayment(prev => 
+      prev.includes(monthStr) 
+        ? prev.filter(m => m !== monthStr)
+        : [...prev, monthStr]
+    );
+  };
+
   const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
-    if (!file || !athlete || selectedMonthIndex === null) return;
+    if (!file || !athlete || selectedMonthsForPayment.length === 0) return;
 
     setUploading(true);
     try {
@@ -68,20 +88,29 @@ function PortalContent() {
 
       const { data: { publicUrl } } = supabase.storage.from('Receipts').getPublicUrl(fileName);
 
-      const billingMonthStr = `${currentYear}-${String(selectedMonthIndex + 1).padStart(2, '0')}`;
+      const expectedTotalAmount = selectedMonthsForPayment.length * athlete.monthly_fee;
+      const insertedPaymentIds = [];
 
-      const { data: paymentData } = await supabase
-        .from('payments')
-        .insert({ 
-          athlete_id: athlete.id, 
-          image_url: publicUrl, 
-          status: 'pending',
-          billing_month: billingMonthStr 
-        })
-        .select().single();
+      for (const monthStr of selectedMonthsForPayment) {
+        const { data: paymentData } = await supabase
+          .from('payments')
+          .insert({ 
+            athlete_id: athlete.id, 
+            image_url: publicUrl, 
+            status: 'pending',
+            billing_month: monthStr 
+          })
+          .select().single();
+          
+        insertedPaymentIds.push(paymentData.id);
+      }
 
       await supabase.functions.invoke('verify-payment', {
-        body: { imageUrl: publicUrl, paymentId: paymentData.id }
+        body: { 
+          imageUrl: publicUrl, 
+          paymentIds: insertedPaymentIds,
+          expectedAmount: Number(expectedTotalAmount)
+        }
       });
 
       setTimeout(() => loadPrivateData(), 3000);
@@ -99,10 +128,13 @@ function PortalContent() {
   if (!athlete) return <div className="min-h-screen flex items-center justify-center animate-pulse">Loading Secure Portal...</div>;
 
   const selectedBillingMonthStr = selectedMonthIndex !== null ? `${currentYear}-${String(selectedMonthIndex + 1).padStart(2, '0')}` : null;
-  const selectedPaymentInfo = selectedMonthIndex !== null ? payments.find(p => {
-    if (p.billing_month) return p.billing_month === selectedBillingMonthStr;
-    return new Date(p.created_at).getMonth() === selectedMonthIndex && new Date(p.created_at).getFullYear() === currentYear;
-  }) : null;
+  const selectedPaymentInfo = selectedMonthIndex !== null ? payments.find(p => p.billing_month === selectedBillingMonthStr) : null;
+
+  const availableMonthsForChecklist = months.map((name, index) => ({
+    name,
+    monthStr: `${currentYear}-${String(index + 1).padStart(2, '0')}`,
+    status: getPaymentStatusForMonthStr(`${currentYear}-${String(index + 1).padStart(2, '0')}`)
+  })).filter(m => (m.status === 'unpaid' || m.status === 'rejected') && parseInt(m.monthStr.split('-')[1]) <= currentMonthIndex + 1);
 
   return (
     <div className="min-h-screen pb-20">
@@ -110,7 +142,6 @@ function PortalContent() {
       
       <div className="max-w-6xl mx-auto px-6 pt-12">
         <header className="mb-12 flex flex-col-reverse sm:flex-row justify-between items-start sm:items-center gap-6">
-          
           <div>
             <h1 className="text-4xl font-black tracking-tight text-slate-900">
               HELLO, {athlete.name.split(' ')[0].toUpperCase()}<span className="text-indigo-600">.</span>
@@ -125,17 +156,11 @@ function PortalContent() {
                 Clube Ténis da Golegã
               </p>
             </div>
-            <img 
-              src="/ctg.jpeg" 
-              alt="Clube Ténis da Golegã" 
-              className="w-12 h-12 md:w-16 md:h-16 object-cover rounded-xl shadow-sm border border-slate-200" 
-            />
+            <img src="/ctg.jpeg" alt="Clube Ténis da Golegã" className="w-12 h-12 md:w-16 md:h-16 object-cover rounded-xl shadow-sm border border-slate-200" />
           </div>
-
         </header>
 
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-10">
-          
           <div className="lg:col-span-8 space-y-6">
             <h2 className="text-2xl font-black text-slate-900 flex items-center gap-3 mb-6">
               <CalendarDays className="w-6 h-6 text-indigo-600" /> {currentYear} Billing Cycle
@@ -144,25 +169,18 @@ function PortalContent() {
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
               {months.map((monthName, index) => {
                 const billingMonthStr = `${currentYear}-${String(index + 1).padStart(2, '0')}`;
-                
-                const paymentForMonth = payments.find(p => {
-                  if (p.billing_month) return p.billing_month === billingMonthStr;
-                  return new Date(p.created_at).getMonth() === index && new Date(p.created_at).getFullYear() === currentYear;
-                });
-
+                const paymentForMonth = payments.find(p => p.billing_month === billingMonthStr);
                 const isFuture = index > currentMonthIndex;
                 const isSelected = selectedMonthIndex === index;
-                
                 const isPaid = paymentForMonth?.status === 'verified';
                 const isPending = paymentForMonth?.status === 'pending' || paymentForMonth?.status === 'processing';
                 const isRejected = paymentForMonth?.status === 'rejected';
-                
                 const canSelect = !isFuture;
 
                 return (
                   <div 
                     key={monthName} 
-                    onClick={() => canSelect && setSelectedMonthIndex(index)}
+                    onClick={() => canSelect && handleMonthClick(index)}
                     className={`relative p-5 rounded-2xl border transition-all duration-200 
                       ${isFuture ? 'bg-slate-50/50 border-slate-100 opacity-60' : 'bg-white shadow-sm'}
                       ${canSelect ? 'cursor-pointer hover:border-indigo-300 hover:shadow-md' : 'cursor-default'}
@@ -181,7 +199,6 @@ function PortalContent() {
                       {(!isPaid && !isPending && !isFuture) && (
                         <div className="text-center group">
                            <XCircle className={`w-8 h-8 mx-auto ${isSelected ? 'text-indigo-400' : 'text-rose-400'}`} />
-                           {canSelect && !isPaid && <p className="text-[10px] font-bold text-indigo-500 opacity-0 group-hover:opacity-100 transition-opacity mt-1">Tap to pay</p>}
                         </div>
                       )}
                       {isFuture && (
@@ -208,24 +225,16 @@ function PortalContent() {
                 </div>
               ) : selectedPaymentInfo?.status === 'verified' ? (
                 <div className="text-center py-8">
-                  <div className="w-16 h-16 bg-emerald-100 text-emerald-500 rounded-full flex items-center justify-center mx-auto mb-4">
-                    <CheckCircle2 className="w-8 h-8" />
-                  </div>
+                  <div className="w-16 h-16 bg-emerald-100 text-emerald-500 rounded-full flex items-center justify-center mx-auto mb-4"><CheckCircle2 className="w-8 h-8" /></div>
                   <h3 className="text-xl font-bold text-slate-900 mb-2">Payment Verified</h3>
-                  <p className="text-sm font-medium text-slate-500 mb-6">
-                    Your club fee for <strong className="text-slate-900">{months[selectedMonthIndex]} {currentYear}</strong> is paid and confirmed. Thank you!
-                  </p>
+                  <p className="text-sm font-medium text-slate-500">Your club fee for <strong className="text-slate-900">{months[selectedMonthIndex]} {currentYear}</strong> is paid.</p>
                 </div>
               ) : selectedPaymentInfo?.status === 'pending' || selectedPaymentInfo?.status === 'processing' ? (
                 <div className="text-center py-8">
-                  <div className="w-16 h-16 bg-amber-100 text-amber-500 rounded-full flex items-center justify-center mx-auto mb-4">
-                    <Loader2 className="w-8 h-8 animate-spin" />
-                  </div>
-                  <h3 className="text-xl font-bold text-slate-900 mb-2">Verifying Payment...</h3>
-                  <p className="text-sm font-medium text-slate-500 mb-6">
-                    Our AI is currently analyzing your receipt for <strong className="text-slate-900">{months[selectedMonthIndex]} {currentYear}</strong>. This usually takes about 10 seconds.
-                  </p>
-                  <button onClick={loadPrivateData} className="text-xs font-bold text-indigo-600 hover:text-indigo-800">Refresh Status</button>
+                  <div className="w-16 h-16 bg-amber-100 text-amber-500 rounded-full flex items-center justify-center mx-auto mb-4"><Loader2 className="w-8 h-8 animate-spin" /></div>
+                  <h3 className="text-xl font-bold text-slate-900 mb-2">Verifying...</h3>
+                  <p className="text-sm font-medium text-slate-500 mb-6">Our AI is analyzing your receipt. This takes about 10 seconds.</p>
+                  <button onClick={loadPrivateData} className="text-xs font-bold text-indigo-600">Refresh Status</button>
                 </div>
               ) : (
                 <>
@@ -235,55 +244,64 @@ function PortalContent() {
                         <AlertTriangle className="w-5 h-5 text-rose-500 flex-shrink-0 mt-0.5" />
                         <div>
                           <h4 className="text-sm font-bold text-rose-800">Payment Rejected</h4>
-                          <p className="text-xs text-rose-600 mt-1">{selectedPaymentInfo.reject_reason || "The uploaded receipt was not accepted."}</p>
+                          <p className="text-xs text-rose-600 mt-1">{selectedPaymentInfo.reject_reason}</p>
                         </div>
                       </div>
                     </div>
                   )}
 
-                  <h2 className="text-xl font-bold mb-2 flex items-center gap-3 text-slate-900">
+                  <h2 className="text-xl font-bold mb-4 flex items-center gap-3 text-slate-900">
                     <Upload className="w-5 h-5 text-indigo-600" /> Submit Receipt
                   </h2>
-                  <p className="text-sm font-medium text-slate-500 mb-6">
-                    Uploading payment for <strong className="text-indigo-600">{months[selectedMonthIndex]} {currentYear}</strong>
-                  </p>
                   
-                  <label className="group flex flex-col items-center justify-center w-full h-48 border-2 border-dashed border-indigo-200 bg-indigo-50/30 rounded-2xl cursor-pointer hover:bg-indigo-50 transition-all">
-                    <div className="text-center p-4">
-                      <div className="w-12 h-12 bg-indigo-100 rounded-xl flex items-center justify-center mx-auto mb-3 group-hover:scale-110 transition-transform">
-                        <Upload className="w-6 h-6 text-indigo-600" />
+                  {availableMonthsForChecklist.length > 0 && (
+                    <div className="mb-6 bg-slate-50 p-4 rounded-xl border border-slate-200">
+                      <p className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-3">Include pending months:</p>
+                      <div className="space-y-2 mb-4">
+                        {availableMonthsForChecklist.map(m => (
+                          <div 
+                            key={m.monthStr} 
+                            onClick={() => toggleMonthSelection(m.monthStr)}
+                            className="flex items-center gap-3 cursor-pointer group"
+                          >
+                            {selectedMonthsForPayment.includes(m.monthStr) 
+                              ? <CheckSquare className="w-5 h-5 text-indigo-600" /> 
+                              : <Square className="w-5 h-5 text-slate-300 group-hover:text-indigo-400" />
+                            }
+                            <span className={`text-sm font-bold ${selectedMonthsForPayment.includes(m.monthStr) ? 'text-slate-900' : 'text-slate-500'}`}>
+                              {m.name} {currentYear}
+                            </span>
+                          </div>
+                        ))}
                       </div>
-                      <p className="text-xs font-bold text-indigo-600">Select receipt image</p>
+                      <div className="pt-3 border-t border-slate-200 flex justify-between items-center">
+                        <span className="text-sm font-bold text-slate-500">Amount to pay:</span>
+                        <span className="text-lg font-black text-indigo-600">€{selectedMonthsForPayment.length * athlete.monthly_fee}</span>
+                      </div>
                     </div>
-                    <input type="file" className="hidden" accept="image/*" onChange={handleFileUpload} disabled={uploading} />
-                  </label>
+                  )}
                   
+                  <label className="group flex flex-col items-center justify-center w-full h-32 border-2 border-dashed border-indigo-200 bg-indigo-50/30 rounded-2xl cursor-pointer hover:bg-indigo-50 transition-all">
+                    <div className="text-center">
+                      <Upload className="w-6 h-6 text-indigo-600 mx-auto mb-2 group-hover:scale-110 transition-transform" />
+                      <p className="text-xs font-bold text-indigo-600">Select receipt image</p>
+                      <p className="text-[10px] text-indigo-400 mt-1">Receipt must show exactly €{selectedMonthsForPayment.length * athlete.monthly_fee}</p>
+                    </div>
+                    <input type="file" className="hidden" accept="image/*" onChange={handleFileUpload} disabled={uploading || selectedMonthsForPayment.length === 0} />
+                  </label>
+
+                  {/* FIX: The AI Analyzing Spinner is back! */}
                   {uploading && (
                     <div className="mt-4 bg-indigo-600 text-white rounded-xl p-4 flex items-center justify-center gap-3 shadow-lg shadow-indigo-200">
                       <Loader2 className="w-5 h-5 animate-spin" />
-                      <span className="text-sm font-bold">AI Analyzing...</span>
+                      <span className="text-sm font-bold">AI Analyzing Receipt...</span>
                     </div>
                   )}
                 </>
               )}
             </div>
           </div>
-
         </div>
-        
-        <footer className="mt-16 pt-8 pb-4 border-t border-slate-200/60">
-          <div className="flex flex-col md:flex-row justify-between items-center gap-4">
-            <p className="text-[10px] text-slate-400 font-medium max-w-2xl text-center md:text-left leading-relaxed">
-              <strong>Privacy Notice (GDPR):</strong> Uploaded receipts are processed securely by AI solely for the purpose of verifying monthly club fees. Your financial data is never used for advertising. You retain the right to request the deletion of your data and images at any time by contacting your club administrator.
-            </p>
-            <div className="flex items-center gap-3 text-[10px] text-slate-300 font-bold uppercase tracking-widest whitespace-nowrap">
-              <span>Secure Portal</span>
-              <span>&middot;</span>
-              <span>AI Verified</span>
-            </div>
-          </div>
-        </footer>
-
       </div>
       <Analytics />
     </div>
