@@ -184,7 +184,6 @@ export default function AdminDashboard() {
               <UserPlus className="w-5 h-5" /> Add Athlete
             </button>
             </div>
-          </div>
 
             <div className="flex border-b border-slate-100">
               <button onClick={() => setAddMode('manual')} className={`flex-1 py-3 text-xs font-black uppercase tracking-widest transition-colors ${addMode === 'manual' ? 'text-indigo-600 border-b-2 border-indigo-600 bg-indigo-50/30' : 'text-slate-400'}`}>1 By 1</button>
