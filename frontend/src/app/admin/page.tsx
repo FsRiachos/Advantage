@@ -107,6 +107,35 @@ export default function AdminDashboard() {
     alert('Private link copied to clipboard!');
   };
 
+  const exportLinksCsv = () => {
+    // Uses your live production domain automatically
+    const baseUrl = window.location.origin; 
+    
+    // Define columns
+    const headers = ['Name', 'Email', 'Portal Link'];
+    
+    // Map athletes to matching rows
+    const rows = athletes.map(a => [
+      `"${a.name.replace(/"/g, '""')}"`, // Escape quotes just in case
+      `"${a.email || ''}"`,
+      `"${baseUrl}/?token=${a.secret_token}"`
+    ]);
+    
+    // Combine headers and rows with a proper UTF-8 BOM so Portuguese accents display perfectly in Excel
+    const csvContent = "\uFEFF" + [headers.join(','), ...rows.map(e => e.join(','))].join('\n');
+    
+    // Create a hidden download link and click it automatically
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.setAttribute("href", url);
+    link.setAttribute("download", `links_atletas_${currentYear}.csv`);
+    document.body.appendChild(link);
+    
+    link.click();
+    document.body.removeChild(link);
+  };
+
   const updateFee = async (id: string, newFee: string) => {
     await supabase.from('athletes').update({ monthly_fee: parseFloat(newFee) }).eq('id', id);
     fetchAdminData();
@@ -142,6 +171,20 @@ export default function AdminDashboard() {
               </h3>
               <button onClick={() => setIsAddModalOpen(false)} className="text-slate-400 hover:text-slate-600"><X /></button>
             </div>
+
+            <div className="flex gap-4">
+            <button 
+              onClick={exportLinksCsv} 
+              className="flex items-center gap-2 bg-white text-slate-700 px-6 py-3 rounded-xl font-bold text-sm shadow-sm border border-slate-200 hover:bg-slate-50 transition-all"
+            >
+              <FileText className="w-5 h-5 text-slate-500" /> Export All Links
+            </button>
+
+            <button onClick={() => setIsAddModalOpen(true)} className="flex items-center gap-2 bg-indigo-600 text-white px-6 py-3 rounded-xl font-black text-sm shadow-lg shadow-indigo-200 hover:bg-indigo-700 transition-all">
+              <UserPlus className="w-5 h-5" /> Add Athlete
+            </button>
+            </div>
+          </div>
 
             <div className="flex border-b border-slate-100">
               <button onClick={() => setAddMode('manual')} className={`flex-1 py-3 text-xs font-black uppercase tracking-widest transition-colors ${addMode === 'manual' ? 'text-indigo-600 border-b-2 border-indigo-600 bg-indigo-50/30' : 'text-slate-400'}`}>1 By 1</button>
