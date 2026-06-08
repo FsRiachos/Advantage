@@ -4,7 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { createClient } from '@supabase/supabase-js';
 import { 
   ShieldCheck, LogOut, Share2, AlertCircle, X, CheckCircle, 
-  XCircle, ExternalLink, UserPlus, FileText, Plus, Upload, Loader2, Mail, Eye, EyeOff
+  XCircle, ExternalLink, UserPlus, FileText, Plus, Upload, Loader2, Mail, Eye, EyeOff, Trash2
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 
