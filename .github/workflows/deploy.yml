@@ -1,5 +1,9 @@
 name: Deploy to Supabase
 
+defaults:
+  run:
+    working-directory: ./frontend
+
 on:
   push:
     branches: [ main, develop ]
@@ -21,17 +25,23 @@ jobs:
     - name: Setup Node.js
       uses: actions/setup-node@v4
       with:
-        node-version: '18'
+        node-version: '25'
         cache: 'npm'
+        cache-dependency-path: './frontend/package-lock.json'
         
-    - name: Install Supabase CLI
-      run: |
-        curl -sSLf https://supabase.com/install.sh | sh
-        echo "$HOME/.supabase/bin" >> $GITHUB_PATH
-        
-    - name: Link Supabase project
+    # 1. First, install the Supabase CLI on the runner
+    - name: Set up Supabase CLI
+      uses: supabase/setup-cli@v1
+      with:
+        version: 'latest'
+
+    # 2. Now you can safely link and deploy
+    - name: Link Supabase Project
       run: supabase link --project-ref $SUPABASE_PROJECT_ID
-      
+      env:
+        SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        SUPABASE_PROJECT_ID: ${{ secrets.SUPABASE_PROJECT_ID }}
+        
     - name: Apply database migrations
       run: supabase db push
       

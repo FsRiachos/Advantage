@@ -4,10 +4,9 @@ import React, { useState, useEffect } from 'react';
 import { createClient } from '@supabase/supabase-js';
 import { 
   ShieldCheck, LogOut, Share2, AlertCircle, X, CheckCircle, 
-  XCircle, Trash2, ExternalLink, UserPlus, FileText, Plus, Upload, Loader2, Mail 
+  XCircle, ExternalLink, UserPlus, FileText, Plus, Upload, Loader2, Mail, Eye, EyeOff, Trash2
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
-import { Analytics } from "@vercel/analytics/next"
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!, 
@@ -18,6 +17,9 @@ export default function AdminDashboard() {
   const [athletes, setAthletes] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedMonthData, setSelectedMonthData] = useState<any>(null);
+  
+  // NEW: Filter to toggle visibility of archived athletes on the main list
+  const [showInactive, setShowInactive] = useState(false);
   
   // State for Add Athlete Modal
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
@@ -57,7 +59,8 @@ export default function AdminDashboard() {
       name: newName,
       email: newEmail,
       monthly_fee: parseFloat(newFee),
-      secret_token: crypto.randomUUID()
+      secret_token: crypto.randomUUID(),
+      is_active: true
     });
 
     if (error) alert(error.message);
@@ -86,7 +89,8 @@ export default function AdminDashboard() {
           name: name?.trim(),
           email: email?.trim(),
           monthly_fee: parseFloat(fee) || 30,
-          secret_token: crypto.randomUUID()
+          secret_token: crypto.randomUUID(),
+          is_active: true
         };
       });
 
@@ -108,32 +112,43 @@ export default function AdminDashboard() {
   };
 
   const exportLinksCsv = () => {
-    // Uses your live production domain automatically
     const baseUrl = window.location.origin; 
+    const headers = ['Name', 'Email', 'Portal Link', 'Status'];
     
-    // Define columns
-    const headers = ['Name', 'Email', 'Portal Link'];
-    
-    // Map athletes to matching rows
-    const rows = athletes.map(a => [
-      `"${a.name.replace(/"/g, '""')}"`, // Escape quotes just in case
+    // Only export active athletes to keep the bulk messaging lists clean
+    const activeAthletes = athletes.filter(a => a.is_active);
+
+    const rows = activeAthletes.map(a => [
+      `"${(a.name || '').replaceAll('"', '""')}"`, 
       `"${a.email || ''}"`,
-      `"${baseUrl}/?token=${a.secret_token}"`
+      `"${baseUrl}/?token=${a.secret_token}"`,
+      `"Active"`
     ]);
     
-    // Combine headers and rows with a proper UTF-8 BOM so Portuguese accents display perfectly in Excel
     const csvContent = "\uFEFF" + [headers.join(','), ...rows.map(e => e.join(','))].join('\n');
-    
-    // Create a hidden download link and click it automatically
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.setAttribute("href", url);
-    link.setAttribute("download", `links_atletas_${currentYear}.csv`);
+    link.setAttribute("download", `links_atletas_ativos_${currentYear}.csv`);
     document.body.appendChild(link);
     
     link.click();
     document.body.removeChild(link);
+  };
+
+  // NEW: Toggle athlete's status instead of deleting them
+  const toggleAthleteStatus = async (id: string, currentStatus: boolean, name: string) => {
+    const action = currentStatus ? 'deactivate/archive' : 'reactivate';
+    if (!window.confirm(`Are you sure you want to ${action} ${name}?`)) return;
+
+    const { error } = await supabase
+      .from('athletes')
+      .update({ is_active: !currentStatus })
+      .eq('id', id);
+
+    if (error) alert(error.message);
+    else fetchAdminData();
   };
 
   const updateFee = async (id: string, newFee: string) => {
@@ -158,6 +173,9 @@ export default function AdminDashboard() {
 
   if (loading) return <div className="min-h-screen flex items-center justify-center bg-[#f8fafc] text-slate-400 font-bold animate-pulse">Authenticating Admin...</div>;
 
+  // Filter the list based on the check status toggle
+  const filteredAthletes = athletes.filter(a => showInactive || a.is_active);
+
   return (
     <div className="min-h-screen bg-[#f8fafc] pb-20 relative">
       
@@ -170,19 +188,6 @@ export default function AdminDashboard() {
                 <UserPlus className="w-5 h-5 text-indigo-600" /> Add Athlete
               </h3>
               <button onClick={() => setIsAddModalOpen(false)} className="text-slate-400 hover:text-slate-600"><X /></button>
-            </div>
-
-            <div className="flex gap-4">
-            <button 
-              onClick={exportLinksCsv} 
-              className="flex items-center gap-2 bg-white text-slate-700 px-6 py-3 rounded-xl font-bold text-sm shadow-sm border border-slate-200 hover:bg-slate-50 transition-all"
-            >
-              <FileText className="w-5 h-5 text-slate-500" /> Export All Links
-            </button>
-
-            <button onClick={() => setIsAddModalOpen(true)} className="flex items-center gap-2 bg-indigo-600 text-white px-6 py-3 rounded-xl font-black text-sm shadow-lg shadow-indigo-200 hover:bg-indigo-700 transition-all">
-              <UserPlus className="w-5 h-5" /> Add Athlete
-            </button>
             </div>
 
             <div className="flex border-b border-slate-100">
@@ -291,8 +296,20 @@ export default function AdminDashboard() {
               <ShieldCheck className="text-indigo-600 w-10 h-10" /> Admin Control
             </h1>
             <p className="text-slate-500 font-medium mt-2">Financial overview for {currentYear}</p>
+            
+            {/* NEW: Filter Checkbox for Inactive Profiles */}
+            <label className="inline-flex items-center gap-2 mt-4 cursor-pointer select-none bg-white border border-slate-200 px-3 py-1.5 rounded-xl shadow-sm text-xs font-bold text-slate-600 hover:bg-slate-50 transition-all">
+              <input type="checkbox" checked={showInactive} onChange={(e) => setShowInactive(e.target.checked)} className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 w-4 h-4 cursor-pointer" />
+              Show Inactive/Archived Athletes
+            </label>
           </div>
           <div className="flex gap-4">
+            <button 
+              onClick={exportLinksCsv} 
+              className="flex items-center gap-2 bg-white text-slate-700 px-6 py-3 rounded-xl font-bold text-sm shadow-sm border border-slate-200 hover:bg-slate-50 transition-all"
+            >
+              <FileText className="w-5 h-5 text-slate-500" /> Export Active Links
+            </button>
             <button onClick={() => setIsAddModalOpen(true)} className="flex items-center gap-2 bg-indigo-600 text-white px-6 py-3 rounded-xl font-black text-sm shadow-lg shadow-indigo-200 hover:bg-indigo-700 transition-all">
               <UserPlus className="w-5 h-5" /> Add Athlete
             </button>
@@ -303,14 +320,13 @@ export default function AdminDashboard() {
         </header>
 
         <div className="space-y-4">
-          {athletes.map((a) => {
+          {filteredAthletes.map((a) => {
             let overdueCount = 0;
             const monthStatuses = monthInitials.map((initial, index) => {
               const billingMonthStr = `${currentYear}-${String(index + 1).padStart(2, '0')}`;
               const monthPayments = a.payments?.filter((p: any) => p.billing_month === billingMonthStr) || [];
               monthPayments.sort((p1: any, p2: any) => new Date(p2.created_at).getTime() - new Date(p1.created_at).getTime());
 
-              let status = 'future';
               let bgColor = 'bg-slate-100 text-slate-400';
               if (monthPayments.some((p: any) => p.status === 'verified')) {
                 bgColor = 'bg-emerald-500 text-white shadow-sm shadow-emerald-200';
@@ -318,7 +334,7 @@ export default function AdminDashboard() {
                 bgColor = 'bg-amber-400 text-white animate-pulse';
               } else if (monthPayments.some((p: any) => p.status === 'rejected')) {
                 bgColor = 'bg-rose-600 text-white shadow-sm shadow-rose-200';
-              } else if (index < currentMonthIndex) {
+              } else if (index < currentMonthIndex && a.is_active) {
                 bgColor = 'bg-rose-400 text-white shadow-sm shadow-rose-200';
                 overdueCount++;
               }
@@ -326,23 +342,36 @@ export default function AdminDashboard() {
             });
 
             return (
-              <div key={a.id} className="flex flex-col xl:flex-row items-start xl:items-center justify-between gap-6 border-l-4 p-5 bg-white rounded-2xl shadow-sm hover:shadow-md transition-shadow" style={{ borderLeftColor: overdueCount > 0 ? '#fb7185' : '#10b981' }}>
+              <div 
+                key={a.id} 
+                className={`flex flex-col xl:flex-row items-start xl:items-center justify-between gap-6 border-l-4 p-5 bg-white rounded-2xl shadow-sm transition-all duration-200
+                  ${!a.is_active ? 'opacity-40 bg-slate-50/70 border-slate-300' : 'hover:shadow-md'}
+                `}
+                style={{ borderLeftColor: !a.is_active ? '#cbd5e1' : overdueCount > 0 ? '#fb7185' : '#10b981' }}
+              >
                 <div className="flex items-center gap-4 w-full xl:w-1/4">
-                  <div className="w-12 h-12 bg-indigo-50 rounded-full flex items-center justify-center font-black text-indigo-600 text-xl flex-shrink-0">{a.name[0]}</div>
+                  <div className={`w-12 h-12 rounded-full flex items-center justify-center font-black text-xl flex-shrink-0 ${!a.is_active ? 'bg-slate-200 text-slate-500' : 'bg-indigo-50 text-indigo-600'}`}>{a.name[0]}</div>
                   <div className="overflow-hidden">
-                    <h3 className="font-bold text-lg text-slate-900 truncate">{a.name}</h3>
+                    <h3 className={`font-bold text-lg text-slate-900 truncate ${!a.is_active ? 'line-through text-slate-400' : ''}`}>{a.name}</h3>
                     <p className="text-[10px] text-slate-400 font-medium flex items-center gap-1 truncate mb-0.5">
                       <Mail className="w-3 h-3" /> {a.email || 'No email provided'}
                     </p>
-                    <p className={`text-xs font-bold flex items-center gap-1 ${overdueCount > 0 ? 'text-rose-500' : 'text-emerald-500'}`}>
-                      {overdueCount > 0 ? <><AlertCircle className="w-3 h-3" /> {overdueCount} overdue</> : 'Up to date'}
+                    <p className={`text-xs font-bold flex items-center gap-1 ${!a.is_active ? 'text-slate-400' : overdueCount > 0 ? 'text-rose-500' : 'text-emerald-500'}`}>
+                      {!a.is_active ? 'Archived Account' : overdueCount > 0 ? <><AlertCircle className="w-3 h-3" /> {overdueCount} overdue</> : 'Up to date'}
                     </p>
                   </div>
                 </div>
                 
                 <div className="flex-1 flex gap-1.5 sm:gap-2 overflow-x-auto py-2 w-full">
                   {monthStatuses.map((m, i) => (
-                    <div key={i} onClick={() => m.paymentsArray.length > 0 && setSelectedMonthData({ athleteName: a.name, monthName: m.name, payments: m.paymentsArray })} title={`${m.name} (${m.paymentsArray.length} uploads)`} className={`w-8 h-8 rounded-lg flex items-center justify-center text-[10px] font-bold shrink-0 transition-transform ${m.bgColor} ${m.paymentsArray.length > 0 ? 'cursor-pointer hover:scale-110' : ''}`}>{m.initial}</div>
+                    <div 
+                      key={i} 
+                      onClick={() => m.paymentsArray.length > 0 && setSelectedMonthData({ athleteName: a.name, monthName: m.name, payments: m.paymentsArray })} 
+                      title={`${m.name} (${m.paymentsArray.length} uploads)`} 
+                      className={`w-8 h-8 rounded-lg flex items-center justify-center text-[10px] font-bold shrink-0 transition-transform ${!a.is_active && m.paymentsArray.length === 0 ? 'bg-slate-100 text-slate-300' : m.bgColor} ${m.paymentsArray.length > 0 ? 'cursor-pointer hover:scale-110' : ''}`}
+                    >
+                      {m.initial}
+                    </div>
                   ))}
                 </div>
                 
@@ -351,14 +380,37 @@ export default function AdminDashboard() {
                     <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Fee</p>
                     <div className="flex items-center text-xl font-black text-slate-900">
                       <span className="mr-0.5">€</span>
-                      <input type="number" defaultValue={a.monthly_fee} onBlur={(e) => updateFee(a.id, e.target.value)} className="w-16 bg-transparent border-b border-dashed border-slate-300 focus:border-indigo-500 outline-none" />
+                      <input type="number" disabled={!a.is_active} defaultValue={a.monthly_fee} onBlur={(e) => updateFee(a.id, e.target.value)} className="w-16 bg-transparent border-b border-dashed border-slate-300 focus:border-indigo-500 outline-none disabled:border-none disabled:text-slate-400" />
                     </div>
                   </div>
-                  <button onClick={() => copyLink(a.secret_token)} className="bg-slate-900 hover:bg-slate-800 text-white py-2 px-4 rounded-xl font-bold text-xs shadow-md flex items-center gap-2 transition-colors">
-                    <Share2 className="w-4 h-4" /> Copy Link
-                  </button>
+                  
+                  {/* NEW: Action Layout (Copy Link / Archive Toggle) */}
+                  <div className="flex items-center gap-2">
+                    {a.is_active ? (
+                      <>
+                        <button onClick={() => copyLink(a.secret_token)} className="bg-slate-900 hover:bg-slate-800 text-white py-2 px-4 rounded-xl font-bold text-xs shadow-md flex items-center gap-2 transition-colors">
+                          <Share2 className="w-4 h-4" /> Copy Link
+                        </button>
+                        <button 
+                          onClick={() => toggleAthleteStatus(a.id, a.is_active, a.name)} 
+                          className="bg-white hover:bg-rose-50 text-slate-300 hover:text-rose-600 border border-slate-200 hover:border-rose-200 py-2 px-3 rounded-xl shadow-sm flex items-center transition-all"
+                          title="Archive Athlete"
+                        >
+                          <EyeOff className="w-4 h-4" />
+                        </button>
+                      </>
+                    ) : (
+                      <button 
+                        onClick={() => toggleAthleteStatus(a.id, a.is_active, a.name)} 
+                        className="bg-indigo-50 hover:bg-indigo-100 text-indigo-600 py-2 px-4 rounded-xl font-bold text-xs flex items-center gap-2 transition-all"
+                        title="Reactivate Athlete"
+                      >
+                        <Eye className="w-4 h-4" /> Reactivate
+                      </button>
+                    )}
+                  </div>
+
                 </div>
-                <Analytics />
               </div>
             );
           })}
