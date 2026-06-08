@@ -26,7 +26,7 @@ function PortalContent() {
   const [selectedMonthIndex, setSelectedMonthIndex] = useState<number | null>(null);
   const [selectedMonthsForPayment, setSelectedMonthsForPayment] = useState<string[]>([]);
 
-  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const months = ['Jan', 'Fev', 'Mar', 'Abr', 'Maio', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
 
   const loadPrivateData = async () => {
     if (!token) {
@@ -151,7 +151,7 @@ function PortalContent() {
 
           <div className="flex items-center gap-4 bg-white/40 px-4 py-2.5 rounded-2xl border border-slate-200/60 shadow-sm backdrop-blur-sm">
             <div className="text-right">
-              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-0.5">Official Portal</p>
+              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-0.5">Portal Oficial</p>
               <p className="text-base md:text-xl font-black text-slate-900 tracking-tight leading-none">
                 Clube Ténis da Golegã
               </p>
@@ -256,7 +256,7 @@ function PortalContent() {
                   
                   {availableMonthsForChecklist.length > 0 && (
                     <div className="mb-6 bg-slate-50 p-4 rounded-xl border border-slate-200">
-                      <p className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-3">Include pending months:</p>
+                      <p className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-3">Incluir meses pendentes:</p>
                       <div className="space-y-2 mb-4">
                         {availableMonthsForChecklist.map(m => (
                           <div 
@@ -275,7 +275,7 @@ function PortalContent() {
                         ))}
                       </div>
                       <div className="pt-3 border-t border-slate-200 flex justify-between items-center">
-                        <span className="text-sm font-bold text-slate-500">Amount to pay:</span>
+                        <span className="text-sm font-bold text-slate-500">Quantia a pagar:</span>
                         <span className="text-lg font-black text-indigo-600">€{selectedMonthsForPayment.length * athlete.monthly_fee}</span>
                       </div>
                     </div>
