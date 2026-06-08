@@ -144,9 +144,9 @@ function PortalContent() {
         <header className="mb-12 flex flex-col-reverse sm:flex-row justify-between items-start sm:items-center gap-6">
           <div>
             <h1 className="text-4xl font-black tracking-tight text-slate-900">
-              HELLO, {athlete.name.split(' ')[0].toUpperCase()}<span className="text-indigo-600">.</span>
+              Olá, {athlete.name.split(' ')[0].toUpperCase()}<span className="text-indigo-600">.</span>
             </h1>
-            <p className="text-slate-500 font-medium mt-1">Your monthly club fee is <span className="text-indigo-600 font-bold">€{athlete.monthly_fee}</span></p>
+            <p className="text-slate-500 font-medium mt-1">A tua mensalidade é de <span className="text-indigo-600 font-bold">€{athlete.monthly_fee}</span></p>
           </div>
 
           <div className="flex items-center gap-4 bg-white/40 px-4 py-2.5 rounded-2xl border border-slate-200/60 shadow-sm backdrop-blur-sm">
@@ -163,7 +163,7 @@ function PortalContent() {
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-10">
           <div className="lg:col-span-8 space-y-6">
             <h2 className="text-2xl font-black text-slate-900 flex items-center gap-3 mb-6">
-              <CalendarDays className="w-6 h-6 text-indigo-600" /> {currentYear} Billing Cycle
+              <CalendarDays className="w-6 h-6 text-indigo-600" /> {currentYear} Mensalidades
             </h2>
             
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
@@ -220,20 +220,20 @@ function PortalContent() {
               {selectedMonthIndex === null ? (
                 <div className="text-center py-12">
                   <AlertCircle className="w-12 h-12 text-slate-300 mx-auto mb-4" />
-                  <h3 className="font-bold text-slate-900 mb-2">Select a Month</h3>
-                  <p className="text-sm text-slate-500">Tap a month on the calendar to view status or upload a receipt.</p>
+                  <h3 className="font-bold text-slate-900 mb-2">Seleciona um mês</h3>
+                  <p className="text-sm text-slate-500">Clique num mês no calendário para verificar o status ou enviar uma fatura.</p>
                 </div>
               ) : selectedPaymentInfo?.status === 'verified' ? (
                 <div className="text-center py-8">
                   <div className="w-16 h-16 bg-emerald-100 text-emerald-500 rounded-full flex items-center justify-center mx-auto mb-4"><CheckCircle2 className="w-8 h-8" /></div>
-                  <h3 className="text-xl font-bold text-slate-900 mb-2">Payment Verified</h3>
-                  <p className="text-sm font-medium text-slate-500">Your club fee for <strong className="text-slate-900">{months[selectedMonthIndex]} {currentYear}</strong> is paid.</p>
+                  <h3 className="text-xl font-bold text-slate-900 mb-2">Pagamento Verificado</h3>
+                  <p className="text-sm font-medium text-slate-500">A tua mensalidade do mês <strong className="text-slate-900">{months[selectedMonthIndex]} {currentYear}</strong> está paga.</p>
                 </div>
               ) : selectedPaymentInfo?.status === 'pending' || selectedPaymentInfo?.status === 'processing' ? (
                 <div className="text-center py-8">
                   <div className="w-16 h-16 bg-amber-100 text-amber-500 rounded-full flex items-center justify-center mx-auto mb-4"><Loader2 className="w-8 h-8 animate-spin" /></div>
-                  <h3 className="text-xl font-bold text-slate-900 mb-2">Verifying...</h3>
-                  <p className="text-sm font-medium text-slate-500 mb-6">Our AI is analyzing your receipt. This takes about 10 seconds.</p>
+                  <h3 className="text-xl font-bold text-slate-900 mb-2">A verificar...</h3>
+                  <p className="text-sm font-medium text-slate-500 mb-6">A IA está a analisar o teu recibo. Isto demora cerca de 10 segundos.</p>
                   <button onClick={loadPrivateData} className="text-xs font-bold text-indigo-600">Refresh Status</button>
                 </div>
               ) : (
@@ -243,7 +243,7 @@ function PortalContent() {
                       <div className="flex items-start gap-3">
                         <AlertTriangle className="w-5 h-5 text-rose-500 flex-shrink-0 mt-0.5" />
                         <div>
-                          <h4 className="text-sm font-bold text-rose-800">Payment Rejected</h4>
+                          <h4 className="text-sm font-bold text-rose-800">Pagamento Rejeitado</h4>
                           <p className="text-xs text-rose-600 mt-1">{selectedPaymentInfo.reject_reason}</p>
                         </div>
                       </div>
@@ -251,7 +251,7 @@ function PortalContent() {
                   )}
 
                   <h2 className="text-xl font-bold mb-4 flex items-center gap-3 text-slate-900">
-                    <Upload className="w-5 h-5 text-indigo-600" /> Submit Receipt
+                    <Upload className="w-5 h-5 text-indigo-600" /> Enviar Recibo
                   </h2>
                   
                   {availableMonthsForChecklist.length > 0 && (
@@ -284,8 +284,8 @@ function PortalContent() {
                   <label className="group flex flex-col items-center justify-center w-full h-32 border-2 border-dashed border-indigo-200 bg-indigo-50/30 rounded-2xl cursor-pointer hover:bg-indigo-50 transition-all">
                     <div className="text-center">
                       <Upload className="w-6 h-6 text-indigo-600 mx-auto mb-2 group-hover:scale-110 transition-transform" />
-                      <p className="text-xs font-bold text-indigo-600">Select receipt image</p>
-                      <p className="text-[10px] text-indigo-400 mt-1">Receipt must show exactly €{selectedMonthsForPayment.length * athlete.monthly_fee}</p>
+                      <p className="text-xs font-bold text-indigo-600">Selecionar imagem do recibo</p>
+                      <p className="text-[10px] text-indigo-400 mt-1">O recibo deve mostrar exatamente €{selectedMonthsForPayment.length * athlete.monthly_fee}</p>
                     </div>
                     <input type="file" className="hidden" accept="image/*" onChange={handleFileUpload} disabled={uploading || selectedMonthsForPayment.length === 0} />
                   </label>
@@ -294,7 +294,7 @@ function PortalContent() {
                   {uploading && (
                     <div className="mt-4 bg-indigo-600 text-white rounded-xl p-4 flex items-center justify-center gap-3 shadow-lg shadow-indigo-200">
                       <Loader2 className="w-5 h-5 animate-spin" />
-                      <span className="text-sm font-bold">AI Analyzing Receipt...</span>
+                      <span className="text-sm font-bold">A IA está a analisar o recibo...</span>
                     </div>
                   )}
                 </>
