@@ -276,7 +276,9 @@ function PortalContent() {
                       </div>
                       <div className="pt-3 border-t border-slate-200 flex justify-between items-center">
                         <span className="text-sm font-bold text-slate-500">Quantia a pagar:</span>
-                        <span className="text-lg font-black text-indigo-600">€{selectedMonthsForPayment.length * athlete.monthly_fee}</span>
+                        <span className="text-lg font-black text-indigo-600">
+                          €{(selectedMonthsForPayment.length * athlete.monthly_fee).toFixed(2).replace('.', ',')}
+                        </span>
                       </div>
                     </div>
                   )}

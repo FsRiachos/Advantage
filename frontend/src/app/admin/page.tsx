@@ -73,37 +73,44 @@ export default function AdminDashboard() {
     setIsProcessing(false);
   };
 
-  const handleCsvUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+const handleCsvUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const file = e.target.files?.[0];
+  if (!file) return;
 
-    setIsProcessing(true);
-    const reader = new FileReader();
-    reader.onload = async (event) => {
-      const text = event.target?.result as string;
-      const lines = text.split('\n').filter(line => line.trim() !== '');
-      
-      const newAthletes = lines.map(line => {
-        const [name, email, fee] = line.split(',');
-        return {
-          name: name?.trim(),
-          email: email?.trim(),
-          monthly_fee: parseFloat(fee) || 30,
-          secret_token: crypto.randomUUID(),
-          is_active: true
-        };
-      });
+  setIsProcessing(true);
+  const reader = new FileReader();
+  reader.onload = async (event) => {
+    const text = event.target?.result as string;
+    const lines = text.split('\n').filter(line => line.trim() !== '');
 
-      const { error } = await supabase.from('athletes').insert(newAthletes);
-      if (error) alert(error.message);
-      else {
-        setIsAddModalOpen(false);
-        fetchAdminData();
-      }
-      setIsProcessing(false);
-    };
-    reader.readAsText(file);
+    const newAthletes = lines.map(line => {
+      // Se o CSV usar ponto e vírgula como separador (comum em Excel português), divide por ';'
+      // Caso contrário, divide por vírgula clássica ','
+      const separator = line.includes(';') ? ';' : ',';
+      const [name, email, fee] = line.split(separator);
+
+      // Converte vírgulas decimais em pontos de forma segura antes do parseFloat
+      const cleanFee = fee ? fee.trim().replace(',', '.') : '30';
+
+      return {
+        name: name?.trim(),
+        email: email?.trim(),
+        monthly_fee: parseFloat(cleanFee) || 30,
+        secret_token: crypto.randomUUID(),
+        is_active: true
+      };
+    });
+
+    const { error } = await supabase.from('athletes').insert(newAthletes);
+    if (error) alert(error.message);
+    else {
+      setIsAddModalOpen(false);
+      fetchAdminData();
+    }
+    setIsProcessing(false);
   };
+  reader.readAsText(file);
+};
 
   const copyLink = (token: string) => {
     const link = `${window.location.origin}/?token=${token}`;
@@ -208,7 +215,7 @@ export default function AdminDashboard() {
                   </div>
                   <div>
                     <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 block mb-2">Monthly Fee (€)</label>
-                    <input type="number" value={newFee} onChange={(e) => setNewFee(e.target.value)} className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-indigo-500 outline-none font-bold text-slate-900" />
+                    <input type="number" step="0.01" value={newFee} onChange={(e) => setNewFee(e.target.value)} className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-indigo-500 outline-none font-bold text-slate-900" />
                   </div>
                   <button disabled={isProcessing} className="w-full bg-indigo-600 text-white font-black py-4 rounded-xl shadow-lg shadow-indigo-200 hover:bg-indigo-700 transition-all flex items-center justify-center gap-2 mt-2">
                     {isProcessing ? <Loader2 className="animate-spin w-5 h-5" /> : <Plus className="w-5 h-5" />} Add to Roster
@@ -380,7 +387,7 @@ export default function AdminDashboard() {
                     <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Fee</p>
                     <div className="flex items-center text-xl font-black text-slate-900">
                       <span className="mr-0.5">€</span>
-                      <input type="number" disabled={!a.is_active} defaultValue={a.monthly_fee} onBlur={(e) => updateFee(a.id, e.target.value)} className="w-16 bg-transparent border-b border-dashed border-slate-300 focus:border-indigo-500 outline-none disabled:border-none disabled:text-slate-400" />
+                      <input type="number" step="0.01" disabled={!a.is_active} defaultValue={a.monthly_fee} onBlur={(e) => updateFee(a.id, e.target.value)} className="w-16 bg-transparent border-b border-dashed border-slate-300 focus:border-indigo-500 outline-none disabled:border-none disabled:text-slate-400" />
                     </div>
                   </div>
                   
