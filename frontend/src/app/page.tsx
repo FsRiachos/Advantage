@@ -5,17 +5,23 @@ import { useSearchParams } from 'next/navigation';
 import { createClient } from '@supabase/supabase-js';
 import { Upload, CheckCircle2, XCircle, Loader2, Hourglass, CalendarDays, AlertCircle, AlertTriangle, CheckSquare, Square, Users } from 'lucide-react';
 import { Analytics } from '@vercel/analytics/next';
-
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 );
 
+// Função auxiliar para obter o primeiro e último nome de forma limpa
+const formatShortName = (fullName: string) => {
+  const tokens = fullName.trim().split(/\s+/);
+  if (tokens.length <= 1) return fullName;
+  return `${tokens[0]} ${tokens[tokens.length - 1]}`;
+};
+
 function PortalContent() {
   const searchParams = useSearchParams();
   const token = searchParams.get('token');
 
-  // Multi-athlete support structures
+  // Suporte para múltiplos atletas (agrupamento familiar)
   const [familyMembers, setFamilyMembers] = useState<any[]>([]);
   const [activeMemberIdx, setActiveMemberIdx] = useState<number>(0);
   
@@ -28,14 +34,15 @@ function PortalContent() {
   
   const [selectedMonthIndex, setSelectedMonthIndex] = useState<number | null>(null);
   
-  // Composite keys tracked as: "athlete_id:billing_month"
+  // Chaves compostas guardadas como: "athlete_id:billing_month"
   const [selectedMonthsForPayment, setSelectedMonthsForPayment] = useState<string[]>([]);
 
-  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  // Meses traduzidos para PT-PT
+  const months = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
 
   const loadPrivateData = async () => {
     if (!token) {
-      setError('Invalid Access: Please use your private club link.');
+      setError('Acesso Inválido: Por favor, utilize o link privado enviado pelo clube.');
       return;
     }
 
@@ -46,11 +53,11 @@ function PortalContent() {
       .single();
 
     if (aError || !initialAthlete) {
-      setError('Access Denied: This link is no longer valid.');
+      setError('Acesso Negado: Este link já não é válido ou o perfil foi removido.');
       return;
     }
 
-    // Resolve household structures
+    // Resolver estrutura do agregado familiar
     let membersList = [initialAthlete];
     if (initialAthlete.family_id) {
       const { data: household } = await supabase
@@ -67,7 +74,7 @@ function PortalContent() {
     const targetIdx = membersList.findIndex(m => m.id === initialAthlete.id);
     setActiveMemberIdx(targetIdx >= 0 ? targetIdx : 0);
 
-    // Harvest financial records for all family accounts
+    // Procurar registos financeiros de todos os membros do agregado familiar
     const accountIds = membersList.map(m => m.id);
     const { data: payData } = await supabase
       .from('payments')
@@ -89,7 +96,6 @@ function PortalContent() {
     if (!currentAthlete) return;
     setSelectedMonthIndex(index);
     const clickedMonthStr = `${currentYear}-${String(index + 1).padStart(2, '0')}`;
-    // Select the clicked item as default target using compound lookup structure
     setSelectedMonthsForPayment([`${currentAthlete.id}:${clickedMonthStr}`]);
   };
 
@@ -115,7 +121,6 @@ function PortalContent() {
 
       const { data: { publicUrl } } = supabase.storage.from('Receipts').getPublicUrl(fileName);
 
-      // Compute exact total weight using specific individual pricing values
       let expectedTotalAmount = 0;
       const insertedPaymentIds = [];
 
@@ -148,12 +153,12 @@ function PortalContent() {
       });
 
       if (functionError) {
-        alert(`AI Error: ${functionError.message || 'Failed to process tracking parameters.'}`);
+        alert(`Erro no processamento: ${functionError.message || 'Não foi possível analisar o comprovativo.'}`);
       }
 
       setTimeout(() => loadPrivateData(), 3000);
     } catch (err) {
-      alert('Upload broken. Verify connection configuration patterns.');
+      alert('Falha no upload. Verifique a sua ligação à internet.');
     } finally {
       setUploading(false);
       event.target.value = '';
@@ -162,13 +167,13 @@ function PortalContent() {
 
   useEffect(() => { loadPrivateData(); }, [token]);
 
-  if (error) return <div className="min-h-screen flex items-center justify-center font-bold text-slate-400">{error}</div>;
-  if (!currentAthlete) return <div className="min-h-screen flex items-center justify-center animate-pulse">Loading Secure Portal Unit...</div>;
+  if (error) return <div className="min-h-screen flex items-center justify-center font-bold text-slate-400 p-6 text-center">{error}</div>;
+  if (!currentAthlete) return <div className="min-h-screen flex items-center justify-center animate-pulse text-slate-500 font-bold">A carregar o seu portal seguro...</div>;
 
   const selectedBillingMonthStr = selectedMonthIndex !== null ? `${currentYear}-${String(selectedMonthIndex + 1).padStart(2, '0')}` : null;
   const selectedPaymentInfo = selectedMonthIndex !== null ? payments.find(p => p.athlete_id === currentAthlete.id && p.billing_month === selectedBillingMonthStr) : null;
 
-  // Build a global list of unpaid months across ALL family members
+  // Estrutura de dados otimizada com Primeiro + Último Nome e divisão por propriedades
   const availableMonthsForChecklist: any[] = [];
   familyMembers.forEach(member => {
     months.forEach((name, index) => {
@@ -178,7 +183,8 @@ function PortalContent() {
       if ((status === 'unpaid' || status === 'rejected') && index <= currentMonthIndex) {
         availableMonthsForChecklist.push({
           compositeKey: `${member.id}:${monthStr}`,
-          displayLabel: `${member.name.split(' ')[0]} - ${name}`,
+          athleteName: formatShortName(member.name),
+          monthName: name,
           fee: member.monthly_fee
         });
       }
@@ -197,9 +203,9 @@ function PortalContent() {
       
       <div className="max-w-6xl mx-auto px-6 pt-12">
         
-        {/* Household tabs displayed when a group configuration matches */}
+        {/* Abas do Agregado Familiar */}
         {familyMembers.length > 1 && (
-          <div className="flex gap-2 mb-6 bg-slate-200/60 p-1.5 rounded-2xl w-fit border border-slate-300/40 backdrop-blur-sm shadow-sm">
+          <div className="flex flex-wrap gap-2 mb-6 bg-slate-200/60 p-1.5 rounded-2xl w-fit border border-slate-300/40 backdrop-blur-sm shadow-sm">
             {familyMembers.map((m, idx) => (
               <button
                 key={m.id}
@@ -217,14 +223,14 @@ function PortalContent() {
         <header className="mb-12 flex flex-col-reverse sm:flex-row justify-between items-start sm:items-center gap-6">
           <div>
             <h1 className="text-4xl font-black tracking-tight text-slate-900">
-              HELLO, {currentAthlete.name.split(' ')[0].toUpperCase()}<span className="text-indigo-600">.</span>
+              OLÁ, {currentAthlete.name.split(' ')[0].toUpperCase()}<span className="text-indigo-600">.</span>
             </h1>
-            <p className="text-slate-500 font-medium mt-1">Monthly club membership fee: <span className="text-indigo-600 font-bold">€{currentAthlete.monthly_fee.toFixed(2).replace('.', ',')}</span></p>
+            <p className="text-slate-500 font-medium mt-1">A sua mensalidade base: <span className="text-indigo-600 font-bold">€{currentAthlete.monthly_fee.toFixed(2).replace('.', ',')}</span></p>
           </div>
 
           <div className="flex items-center gap-4 bg-white/40 px-4 py-2.5 rounded-2xl border border-slate-200/60 shadow-sm backdrop-blur-sm">
             <div className="text-right">
-              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-0.5">Official Portal</p>
+              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-0.5">Portal Oficial</p>
               <p className="text-base md:text-xl font-black text-slate-900 tracking-tight leading-none">Clube Ténis da Golegã</p>
             </div>
             <img src="/ctg.jpeg" alt="Clube Ténis da Golegã" className="w-12 h-12 md:w-16 md:h-16 object-cover rounded-xl shadow-sm border border-slate-200" />
@@ -234,7 +240,7 @@ function PortalContent() {
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-10">
           <div className="lg:col-span-8 space-y-6">
             <h2 className="text-2xl font-black text-slate-900 flex items-center gap-3 mb-6">
-              <CalendarDays className="w-6 h-6 text-indigo-600" /> {currentYear} Billing Status
+              <CalendarDays className="w-6 h-6 text-indigo-600" /> Estado das Mensalidades {currentYear}
             </h2>
             
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
@@ -260,8 +266,8 @@ function PortalContent() {
                   >
                     <div className="flex justify-between items-start mb-4">
                       <p className={`text-sm font-bold ${isSelected ? 'text-indigo-600' : 'text-slate-500'}`}>{monthName}</p>
-                      {isPending && <span className="text-[9px] font-bold text-amber-500 uppercase tracking-widest bg-amber-50 px-2 py-0.5 rounded">Pending</span>}
-                      {isRejected && <span className="text-[9px] font-bold text-rose-500 uppercase tracking-widest bg-rose-50 px-2 py-0.5 rounded">Rejected</span>}
+                      {isPending && <span className="text-[9px] font-bold text-amber-500 uppercase tracking-widest bg-amber-50 px-2 py-0.5 rounded">Pendente</span>}
+                      {isRejected && <span className="text-[9px] font-bold text-rose-500 uppercase tracking-widest bg-rose-50 px-2 py-0.5 rounded">Rejeitado</span>}
                     </div>
                     
                     <div className="flex items-center justify-center h-12">
@@ -271,7 +277,7 @@ function PortalContent() {
                       {isFuture && (
                         <div className="flex flex-col items-center">
                           <Hourglass className="w-6 h-6 text-slate-300 mb-1" />
-                          <span className="text-[10px] font-bold text-slate-400">€{currentAthlete.monthly_fee}</span>
+                          <span className="text-[10px] font-bold text-slate-400">€{currentAthlete.monthly_fee.toFixed(2).replace('.', ',')}</span>
                         </div>
                       )}
                     </div>
@@ -287,21 +293,21 @@ function PortalContent() {
               {selectedMonthIndex === null ? (
                 <div className="text-center py-12">
                   <AlertCircle className="w-12 h-12 text-slate-300 mx-auto mb-4" />
-                  <h3 className="font-bold text-slate-900 mb-2">Select Target Month</h3>
-                  <p className="text-sm text-slate-500">Tap an active month box on the calendar viewport to initiate verification sequences.</p>
+                  <h3 className="font-bold text-slate-900 mb-2">Selecione um Mês</h3>
+                  <p className="text-sm text-slate-500">Clique num dos meses ativos no calendário para visualizar o estado ou enviar um comprovativo.</p>
                 </div>
               ) : selectedPaymentInfo?.status === 'verified' ? (
                 <div className="text-center py-8">
                   <div className="w-16 h-16 bg-emerald-100 text-emerald-500 rounded-full flex items-center justify-center mx-auto mb-4"><CheckCircle2 className="w-8 h-8" /></div>
-                  <h3 className="text-xl font-bold text-slate-900 mb-2">Payment Verified</h3>
-                  <p className="text-sm font-medium text-slate-500">The record container for <strong className="text-slate-900">{months[selectedMonthIndex]} {currentYear}</strong> has resolved successfully.</p>
+                  <h3 className="text-xl font-bold text-slate-900 mb-2">Pagamento Validado</h3>
+                  <p className="text-sm font-medium text-slate-500">A sua mensalidade de <strong className="text-slate-900">{months[selectedMonthIndex]} {currentYear}</strong> encontra-se totalmente paga. Obrigado!</p>
                 </div>
               ) : selectedPaymentInfo?.status === 'pending' || selectedPaymentInfo?.status === 'processing' ? (
                 <div className="text-center py-8">
                   <div className="w-16 h-16 bg-amber-100 text-amber-500 rounded-full flex items-center justify-center mx-auto mb-4"><Loader2 className="w-8 h-8 animate-spin" /></div>
-                  <h3 className="text-xl font-bold text-slate-900 mb-2">Verifying...</h3>
-                  <p className="text-sm font-medium text-slate-500 mb-6">Our AI engine is currently scanning the structural elements of your uploaded asset.</p>
-                  <button onClick={loadPrivateData} className="text-xs font-bold text-indigo-600">Refresh Interface Status</button>
+                  <h3 className="text-xl font-bold text-slate-900 mb-2">A verificar...</h3>
+                  <p className="text-sm font-medium text-slate-500 mb-6">A nossa Inteligência Artificial está a ler os dados do seu documento. Demora cerca de 10 segundos.</p>
+                  <button onClick={loadPrivateData} className="text-xs font-bold text-indigo-600 hover:underline">Atualizar Estado da Página</button>
                 </div>
               ) : (
                 <>
@@ -310,7 +316,7 @@ function PortalContent() {
                       <div className="flex items-start gap-3">
                         <AlertTriangle className="w-5 h-5 text-rose-500 flex-shrink-0 mt-0.5" />
                         <div>
-                          <h4 className="text-sm font-bold text-rose-800">Verification Rejected</h4>
+                          <h4 className="text-sm font-bold text-rose-800">Comprovativo Rejeitado</h4>
                           <p className="text-xs text-rose-600 mt-1">{selectedPaymentInfo.reject_reason}</p>
                         </div>
                       </div>
@@ -318,32 +324,58 @@ function PortalContent() {
                   )}
 
                   <h2 className="text-xl font-bold mb-4 flex items-center gap-3 text-slate-900">
-                    <Upload className="w-5 h-5 text-indigo-600" /> Submit Asset
+                    <Upload className="w-5 h-5 text-indigo-600" /> Enviar Comprovativo
                   </h2>
                   
+                  {/* DESIGN REMODELADO: Lista de seleção familiar em formato de Cards */}
                   {availableMonthsForChecklist.length > 0 && (
-                    <div className="mb-6 bg-slate-50 p-4 rounded-xl border border-slate-200">
-                      <p className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-3">Group outstanding items:</p>
-                      <div className="space-y-2 mb-4 max-h-40 overflow-y-auto pr-1">
-                        {availableMonthsForChecklist.map(m => (
-                          <div 
-                            key={m.compositeKey} 
-                            onClick={() => toggleMonthSelection(m.compositeKey)}
-                            className="flex items-center gap-3 cursor-pointer group"
-                          >
-                            {selectedMonthsForPayment.includes(m.compositeKey) 
-                              ? <CheckSquare className="w-5 h-5 text-indigo-600 shadow-sm" /> 
-                              : <Square className="w-5 h-5 text-slate-300 group-hover:text-indigo-400" />
-                            }
-                            <span className={`text-sm font-bold ${selectedMonthsForPayment.includes(m.compositeKey) ? 'text-slate-900' : 'text-slate-500'}`}>
-                              {m.displayLabel}
-                            </span>
-                          </div>
-                        ))}
+                    <div className="mb-6 bg-indigo-50/40 p-5 rounded-2xl border border-indigo-100/80 shadow-inner">
+                      <p className="text-xs font-black text-indigo-900 uppercase tracking-wider mb-4 flex items-center gap-1.5">
+                        <Users className="w-4 h-4 text-indigo-500" /> Incluir mais mensalidades neste pagamento:
+                      </p>
+                      
+                      <div className="space-y-2.5 mb-4 max-h-48 overflow-y-auto pr-1 scrollbar-thin">
+                        {availableMonthsForChecklist.map(m => {
+                          const isChecked = selectedMonthsForPayment.includes(m.compositeKey);
+                          return (
+                            <div 
+                              key={m.compositeKey} 
+                              onClick={() => toggleMonthSelection(m.compositeKey)}
+                              className={`flex items-center justify-between p-3 rounded-xl border transition-all duration-150 cursor-pointer select-none
+                                ${isChecked 
+                                  ? 'bg-white border-indigo-300 shadow-sm' 
+                                  : 'bg-white/60 border-slate-200/60 hover:bg-white hover:border-slate-300'}
+                              `}
+                            >
+                              <div className="flex items-center gap-3">
+                                {isChecked 
+                                  ? <CheckSquare className="w-5 h-5 text-indigo-600 shrink-0" /> 
+                                  : <Square className="w-5 h-5 text-slate-300 group-hover:text-indigo-400 shrink-0" />
+                                }
+                                <div className="leading-tight">
+                                  <p className={`text-sm font-black ${isChecked ? 'text-slate-900' : 'text-slate-700'}`}>
+                                    {m.athleteName}
+                                  </p>
+                                  <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mt-0.5">
+                                    Mês: <span className="text-indigo-600">{m.monthName}</span>
+                                  </p>
+                                </div>
+                              </div>
+                              <div className="text-right shrink-0">
+                                <span className={`text-sm font-black ${isChecked ? 'text-indigo-600' : 'text-slate-500'}`}>
+                                  €{m.fee.toFixed(2).replace('.', ',')}
+                                </span>
+                              </div>
+                            </div>
+                          );
+                        })}
                       </div>
-                      <div className="pt-3 border-t border-slate-200 flex justify-between items-center">
-                        <span className="text-sm font-bold text-slate-500">Aggregated Total:</span>
-                        <span className="text-lg font-black text-indigo-600">€{calculatedTotal.toFixed(2).replace('.', ',')}</span>
+                      
+                      <div className="pt-3 border-t border-indigo-100/60 flex justify-between items-center">
+                        <span className="text-xs font-bold text-slate-500">Total a Comprovar:</span>
+                        <span className="text-xl font-black text-indigo-600">
+                          €{calculatedTotal.toFixed(2).replace('.', ',')}
+                        </span>
                       </div>
                     </div>
                   )}
@@ -351,16 +383,16 @@ function PortalContent() {
                   <label className="group flex flex-col items-center justify-center w-full h-32 border-2 border-dashed border-indigo-200 bg-indigo-50/30 rounded-2xl cursor-pointer hover:bg-indigo-50 transition-all">
                     <div className="text-center px-4">
                       <Upload className="w-6 h-6 text-indigo-600 mx-auto mb-2 group-hover:scale-110 transition-transform" />
-                      <p className="text-xs font-bold text-indigo-600">Select receipt image</p>
-                      <p className="text-[10px] text-indigo-400 mt-1 font-medium">Receipt must show exactly €{calculatedTotal.toFixed(2).replace('.', ',')}</p>
+                      <p className="text-xs font-bold text-indigo-600">Selecionar imagem ou PDF</p>
+                      <p className="text-[10px] text-indigo-400 mt-1 font-medium">O documento deve ter o valor exato de €{calculatedTotal.toFixed(2).replace('.', ',')}</p>
                     </div>
-                    <input type="file" className="hidden" accept="image/*" onChange={handleFileUpload} disabled={uploading || selectedMonthsForPayment.length === 0} />
+                    <input type="file" className="hidden" accept="image/*,application/pdf" onChange={handleFileUpload} disabled={uploading || selectedMonthsForPayment.length === 0} />
                   </label>
 
                   {uploading && (
                     <div className="mt-4 bg-indigo-600 text-white rounded-xl p-4 flex items-center justify-center gap-3 shadow-lg shadow-indigo-200">
                       <Loader2 className="w-5 h-5 animate-spin" />
-                      <span className="text-sm font-bold">AI Analyzing Receipt...</span>
+                      <span className="text-sm font-bold">A Inteligência Artificial está a analisar...</span>
                     </div>
                   )}
                 </>
@@ -376,7 +408,7 @@ function PortalContent() {
 
 export default function Home() {
   return (
-    <Suspense fallback={<div className="min-h-screen flex items-center justify-center font-bold text-slate-400 animate-pulse">Loading Secure Portal Unit...</div>}>
+    <Suspense fallback={<div className="min-h-screen flex items-center justify-center font-bold text-slate-400 animate-pulse">A carregar o seu portal seguro...</div>}>
       <PortalContent />
     </Suspense>
   );
