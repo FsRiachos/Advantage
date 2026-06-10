@@ -4,7 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { createClient } from '@supabase/supabase-js';
 import { 
   ShieldCheck, LogOut, Share2, AlertCircle, X, CheckCircle, 
-  XCircle, ExternalLink, UserPlus, FileText, Plus, Upload, Loader2, Mail, Eye, EyeOff, Trash2
+  XCircle, ExternalLink, UserPlus, FileText, Plus, Upload, Loader2, Mail, Eye, EyeOff, Trash2, Home
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 
@@ -18,10 +18,8 @@ export default function AdminDashboard() {
   const [loading, setLoading] = useState(true);
   const [selectedMonthData, setSelectedMonthData] = useState<any>(null);
   
-  // NEW: Filter to toggle visibility of archived athletes on the main list
   const [showInactive, setShowInactive] = useState(false);
   
-  // State for Add Athlete Modal
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [addMode, setAddMode] = useState<'manual' | 'csv'>('manual');
   const [newName, setNewName] = useState('');
@@ -73,44 +71,40 @@ export default function AdminDashboard() {
     setIsProcessing(false);
   };
 
-const handleCsvUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-  const file = e.target.files?.[0];
-  if (!file) return;
+  const handleCsvUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
 
-  setIsProcessing(true);
-  const reader = new FileReader();
-  reader.onload = async (event) => {
-    const text = event.target?.result as string;
-    const lines = text.split('\n').filter(line => line.trim() !== '');
+    setIsProcessing(true);
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      const text = event.target?.result as string;
+      const lines = text.split('\n').filter(line => line.trim() !== '');
+      
+      const newAthletes = lines.map(line => {
+        const separator = line.includes(';') ? ';' : ',';
+        const [name, email, fee] = line.split(separator);
+        const cleanFee = fee ? fee.trim().replace(',', '.') : '30';
 
-    const newAthletes = lines.map(line => {
-      // Se o CSV usar ponto e vírgula como separador (comum em Excel português), divide por ';'
-      // Caso contrário, divide por vírgula clássica ','
-      const separator = line.includes(';') ? ';' : ',';
-      const [name, email, fee] = line.split(separator);
+        return {
+          name: name?.trim(),
+          email: email?.trim(),
+          monthly_fee: parseFloat(cleanFee) || 30,
+          secret_token: crypto.randomUUID(),
+          is_active: true
+        };
+      });
 
-      // Converte vírgulas decimais em pontos de forma segura antes do parseFloat
-      const cleanFee = fee ? fee.trim().replace(',', '.') : '30';
-
-      return {
-        name: name?.trim(),
-        email: email?.trim(),
-        monthly_fee: parseFloat(cleanFee) || 30,
-        secret_token: crypto.randomUUID(),
-        is_active: true
-      };
-    });
-
-    const { error } = await supabase.from('athletes').insert(newAthletes);
-    if (error) alert(error.message);
-    else {
-      setIsAddModalOpen(false);
-      fetchAdminData();
-    }
-    setIsProcessing(false);
+      const { error } = await supabase.from('athletes').insert(newAthletes);
+      if (error) alert(error.message);
+      else {
+        setIsAddModalOpen(false);
+        fetchAdminData();
+      }
+      setIsProcessing(false);
+    };
+    reader.readAsText(file);
   };
-  reader.readAsText(file);
-};
 
   const copyLink = (token: string) => {
     const link = `${window.location.origin}/?token=${token}`;
@@ -121,8 +115,6 @@ const handleCsvUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
   const exportLinksCsv = () => {
     const baseUrl = window.location.origin; 
     const headers = ['Name', 'Email', 'Portal Link', 'Status'];
-    
-    // Only export active athletes to keep the bulk messaging lists clean
     const activeAthletes = athletes.filter(a => a.is_active);
 
     const rows = activeAthletes.map(a => [
@@ -144,7 +136,6 @@ const handleCsvUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     document.body.removeChild(link);
   };
 
-  // NEW: Toggle athlete's status instead of deleting them
   const toggleAthleteStatus = async (id: string, currentStatus: boolean, name: string) => {
     const action = currentStatus ? 'deactivate/archive' : 'reactivate';
     if (!window.confirm(`Are you sure you want to ${action} ${name}?`)) return;
@@ -160,6 +151,13 @@ const handleCsvUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
 
   const updateFee = async (id: string, newFee: string) => {
     await supabase.from('athletes').update({ monthly_fee: parseFloat(newFee) }).eq('id', id);
+    fetchAdminData();
+  };
+
+  // NEW: Update family text reference configurations
+  const updateFamilyId = async (id: string, groupRef: string) => {
+    const cleanRef = groupRef.trim() === "" ? null : groupRef.trim();
+    await supabase.from('athletes').update({ family_id: cleanRef }).eq('id', id);
     fetchAdminData();
   };
 
@@ -180,7 +178,6 @@ const handleCsvUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
 
   if (loading) return <div className="min-h-screen flex items-center justify-center bg-[#f8fafc] text-slate-400 font-bold animate-pulse">Authenticating Admin...</div>;
 
-  // Filter the list based on the check status toggle
   const filteredAthletes = athletes.filter(a => showInactive || a.is_active);
 
   return (
@@ -276,7 +273,7 @@ const handleCsvUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
                       </div>
                       <div className="text-right">
                         <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Detected</p>
-                        <p className="text-2xl font-black text-slate-900">{payment.amount_detected ? `€${payment.amount_detected}` : '—'}</p>
+                        <p className="text-2xl font-black text-slate-900">{payment.amount_detected ? `€${payment.amount_detected.toFixed(2)}` : '—'}</p>
                       </div>
                     </div>
                     {payment.reject_reason && <div className="p-3 bg-rose-50 border border-rose-100 rounded-xl text-xs text-rose-700">{payment.reject_reason}</div>}
@@ -304,7 +301,6 @@ const handleCsvUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
             </h1>
             <p className="text-slate-500 font-medium mt-2">Financial overview for {currentYear}</p>
             
-            {/* NEW: Filter Checkbox for Inactive Profiles */}
             <label className="inline-flex items-center gap-2 mt-4 cursor-pointer select-none bg-white border border-slate-200 px-3 py-1.5 rounded-xl shadow-sm text-xs font-bold text-slate-600 hover:bg-slate-50 transition-all">
               <input type="checkbox" checked={showInactive} onChange={(e) => setShowInactive(e.target.checked)} className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 w-4 h-4 cursor-pointer" />
               Show Inactive/Archived Athletes
@@ -382,8 +378,24 @@ const handleCsvUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
                   ))}
                 </div>
                 
-                <div className="flex items-center justify-between w-full xl:w-auto gap-6 pt-4 border-t border-slate-100 xl:pt-0 xl:border-none">
-                  <div className="text-left xl:text-right">
+                <div className="flex flex-wrap items-center justify-between w-full xl:w-auto gap-6 pt-4 border-t border-slate-100 xl:pt-0 xl:border-none">
+                  
+                  {/* NEW: Inline Family Identifier Reference Tag */}
+                  <div className="text-left">
+                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1 flex items-center gap-1">
+                      <Home className="w-3 h-3" /> Family Group
+                    </p>
+                    <input 
+                      type="text" 
+                      disabled={!a.is_active}
+                      defaultValue={a.family_id || ''} 
+                      placeholder="None"
+                      onBlur={(e) => updateFamilyId(a.id, e.target.value)}
+                      className="w-24 bg-transparent text-sm font-bold text-slate-700 border-b border-dashed border-slate-300 focus:border-indigo-500 outline-none disabled:text-slate-400 disabled:border-none"
+                    />
+                  </div>
+
+                  <div className="text-left">
                     <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Fee</p>
                     <div className="flex items-center text-xl font-black text-slate-900">
                       <span className="mr-0.5">€</span>
@@ -391,7 +403,6 @@ const handleCsvUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
                     </div>
                   </div>
                   
-                  {/* NEW: Action Layout (Copy Link / Archive Toggle) */}
                   <div className="flex items-center gap-2">
                     {a.is_active ? (
                       <>
