@@ -19,12 +19,15 @@ export default function AdminDashboard() {
   const [selectedMonthData, setSelectedMonthData] = useState<any>(null);
   
   const [showInactive, setShowInactive] = useState(false);
+  // NEW: Sport Filter State
+  const [sportFilter, setSportFilter] = useState<'All' | 'Ténis' | 'Padel'>('All');
   
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [addMode, setAddMode] = useState<'manual' | 'csv'>('manual');
   const [newName, setNewName] = useState('');
   const [newEmail, setNewEmail] = useState('');
   const [newFee, setNewFee] = useState('30');
+  const [newSport, setNewSport] = useState('Ténis'); // NEW: Default sport for manual add
   const [isProcessing, setIsProcessing] = useState(false);
 
   const router = useRouter();
@@ -57,6 +60,7 @@ export default function AdminDashboard() {
       name: newName,
       email: newEmail,
       monthly_fee: parseFloat(newFee),
+      sport: newSport,
       secret_token: crypto.randomUUID(),
       is_active: true
     });
@@ -65,6 +69,7 @@ export default function AdminDashboard() {
     else {
       setNewName('');
       setNewEmail('');
+      setNewSport('Ténis');
       setIsAddModalOpen(false);
       fetchAdminData();
     }
@@ -83,13 +88,16 @@ export default function AdminDashboard() {
       
       const newAthletes = lines.map(line => {
         const separator = line.includes(';') ? ';' : ',';
-        const [name, email, fee] = line.split(separator);
+        // NEW: Expecting a 4th column for sport (optional)
+        const [name, email, fee, sport] = line.split(separator);
         const cleanFee = fee ? fee.trim().replace(',', '.') : '30';
+        const cleanSport = sport && sport.trim().toLowerCase() === 'padel' ? 'Padel' : 'Ténis';
 
         return {
           name: name?.trim(),
           email: email?.trim(),
           monthly_fee: parseFloat(cleanFee) || 30,
+          sport: cleanSport,
           secret_token: crypto.randomUUID(),
           is_active: true
         };
@@ -114,12 +122,13 @@ export default function AdminDashboard() {
 
   const exportLinksCsv = () => {
     const baseUrl = window.location.origin; 
-    const headers = ['Name', 'Email', 'Portal Link', 'Status'];
+    const headers = ['Name', 'Email', 'Sport', 'Portal Link', 'Status'];
     const activeAthletes = athletes.filter(a => a.is_active);
 
     const rows = activeAthletes.map(a => [
       `"${(a.name || '').replaceAll('"', '""')}"`, 
       `"${a.email || ''}"`,
+      `"${a.sport || 'Ténis'}"`,
       `"${baseUrl}/?token=${a.secret_token}"`,
       `"Active"`
     ]);
@@ -154,7 +163,12 @@ export default function AdminDashboard() {
     fetchAdminData();
   };
 
-  // NEW: Update family text reference configurations
+  // NEW: Update Sport Reference
+  const updateSport = async (id: string, newSport: string) => {
+    await supabase.from('athletes').update({ sport: newSport }).eq('id', id);
+    fetchAdminData();
+  };
+
   const updateFamilyId = async (id: string, groupRef: string) => {
     const cleanRef = groupRef.trim() === "" ? null : groupRef.trim();
     await supabase.from('athletes').update({ family_id: cleanRef }).eq('id', id);
@@ -178,7 +192,12 @@ export default function AdminDashboard() {
 
   if (loading) return <div className="min-h-screen flex items-center justify-center bg-[#f8fafc] text-slate-400 font-bold animate-pulse">Authenticating Admin...</div>;
 
-  const filteredAthletes = athletes.filter(a => showInactive || a.is_active);
+  // Filter athletes by both Active Status AND Sport
+  const filteredAthletes = athletes.filter(a => {
+    const statusMatch = showInactive || a.is_active;
+    const sportMatch = sportFilter === 'All' || a.sport === sportFilter;
+    return statusMatch && sportMatch;
+  });
 
   return (
     <div className="min-h-screen bg-[#f8fafc] pb-20 relative">
@@ -210,9 +229,18 @@ export default function AdminDashboard() {
                     <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 block mb-2">Email Address</label>
                     <input type="email" value={newEmail} onChange={(e) => setNewEmail(e.target.value)} placeholder="athlete@email.com" className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-indigo-500 outline-none font-bold text-slate-900" />
                   </div>
-                  <div>
-                    <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 block mb-2">Monthly Fee (€)</label>
-                    <input type="number" step="0.01" value={newFee} onChange={(e) => setNewFee(e.target.value)} className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-indigo-500 outline-none font-bold text-slate-900" />
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 block mb-2">Monthly Fee (€)</label>
+                      <input type="number" step="0.01" value={newFee} onChange={(e) => setNewFee(e.target.value)} className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-indigo-500 outline-none font-bold text-slate-900" />
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 block mb-2">Sport</label>
+                      <select value={newSport} onChange={(e) => setNewSport(e.target.value)} className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-indigo-500 outline-none font-bold text-slate-900 bg-white">
+                        <option value="Ténis">Ténis</option>
+                        <option value="Padel">Padel</option>
+                      </select>
+                    </div>
                   </div>
                   <button disabled={isProcessing} className="w-full bg-indigo-600 text-white font-black py-4 rounded-xl shadow-lg shadow-indigo-200 hover:bg-indigo-700 transition-all flex items-center justify-center gap-2 mt-2">
                     {isProcessing ? <Loader2 className="animate-spin w-5 h-5" /> : <Plus className="w-5 h-5" />} Add to Roster
@@ -223,7 +251,7 @@ export default function AdminDashboard() {
                   <div className="p-6 bg-indigo-50 rounded-2xl border-2 border-dashed border-indigo-200">
                     <FileText className="w-10 h-10 text-indigo-400 mx-auto mb-4" />
                     <p className="text-sm font-bold text-indigo-900 mb-1">Upload CSV File</p>
-                    <p className="text-[10px] text-indigo-500 font-medium">Format: Name, Email, Fee<br/>(e.g. John Doe, john@email.com, 30)</p>
+                    <p className="text-[10px] text-indigo-500 font-medium">Format: Name, Email, Fee, Sport<br/>(e.g. John Doe, john@email.com, 30, Padel)</p>
                   </div>
                   <label className="cursor-pointer block w-full bg-indigo-600 text-white font-black py-4 rounded-xl shadow-lg shadow-indigo-200 hover:bg-indigo-700 transition-all">
                     <span className="flex items-center justify-center gap-2">
@@ -301,11 +329,27 @@ export default function AdminDashboard() {
             </h1>
             <p className="text-slate-500 font-medium mt-2">Financial overview for {currentYear}</p>
             
-            <label className="inline-flex items-center gap-2 mt-4 cursor-pointer select-none bg-white border border-slate-200 px-3 py-1.5 rounded-xl shadow-sm text-xs font-bold text-slate-600 hover:bg-slate-50 transition-all">
-              <input type="checkbox" checked={showInactive} onChange={(e) => setShowInactive(e.target.checked)} className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 w-4 h-4 cursor-pointer" />
-              Show Inactive/Archived Athletes
-            </label>
+            {/* NEW: Sport Filter Tabs & Inactive Toggle */}
+            <div className="flex flex-col sm:flex-row sm:items-center gap-4 mt-6">
+              <div className="flex bg-slate-200/60 p-1 rounded-xl w-fit border border-slate-300/40">
+                {['All', 'Ténis', 'Padel'].map(s => (
+                  <button
+                    key={s}
+                    onClick={() => setSportFilter(s as any)}
+                    className={`px-6 py-1.5 rounded-lg text-xs font-black uppercase tracking-wider transition-all duration-150 ${sportFilter === s ? 'bg-white shadow-sm text-indigo-600' : 'text-slate-500 hover:text-slate-700'}`}
+                  >
+                    {s}
+                  </button>
+                ))}
+              </div>
+              
+              <label className="inline-flex items-center gap-2 cursor-pointer select-none bg-white border border-slate-200 px-3 py-1.5 rounded-xl shadow-sm text-xs font-bold text-slate-600 hover:bg-slate-50 transition-all">
+                <input type="checkbox" checked={showInactive} onChange={(e) => setShowInactive(e.target.checked)} className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 w-4 h-4 cursor-pointer" />
+                Show Inactive/Archived
+              </label>
+            </div>
           </div>
+
           <div className="flex gap-4">
             <button 
               onClick={exportLinksCsv} 
@@ -380,7 +424,20 @@ export default function AdminDashboard() {
                 
                 <div className="flex flex-wrap items-center justify-between w-full xl:w-auto gap-6 pt-4 border-t border-slate-100 xl:pt-0 xl:border-none">
                   
-                  {/* NEW: Inline Family Identifier Reference Tag */}
+                  {/* NEW: Inline Sport Selector */}
+                  <div className="text-left">
+                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Sport</p>
+                    <select 
+                      disabled={!a.is_active}
+                      value={a.sport || 'Ténis'} 
+                      onChange={(e) => updateSport(a.id, e.target.value)}
+                      className="w-20 bg-transparent text-sm font-bold text-slate-700 border-b border-dashed border-slate-300 focus:border-indigo-500 outline-none disabled:text-slate-400 disabled:border-none cursor-pointer"
+                    >
+                      <option value="Ténis">Ténis</option>
+                      <option value="Padel">Padel</option>
+                    </select>
+                  </div>
+
                   <div className="text-left">
                     <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1 flex items-center gap-1">
                       <Home className="w-3 h-3" /> Family Group
