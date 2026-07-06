@@ -4,7 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { createClient } from '@supabase/supabase-js';
 import { 
   ShieldCheck, LogOut, Share2, AlertCircle, X, CheckCircle, 
-  XCircle, ExternalLink, UserPlus, FileText, Plus, Upload, Loader2, Mail, Eye, EyeOff, Trash2, Home
+  XCircle, ExternalLink, UserPlus, FileText, Plus, Upload, Loader2, Mail, Eye, EyeOff, Trash2, Home, Pencil, Save
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 
@@ -19,7 +19,6 @@ export default function AdminDashboard() {
   const [selectedMonthData, setSelectedMonthData] = useState<any>(null);
   
   const [showInactive, setShowInactive] = useState(false);
-  // NEW: Sport Filter State
   const [sportFilter, setSportFilter] = useState<'All' | 'Ténis' | 'Padel'>('All');
   
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
@@ -27,8 +26,11 @@ export default function AdminDashboard() {
   const [newName, setNewName] = useState('');
   const [newEmail, setNewEmail] = useState('');
   const [newFee, setNewFee] = useState('30');
-  const [newSport, setNewSport] = useState('Ténis'); // NEW: Default sport for manual add
+  const [newSport, setNewSport] = useState('Ténis');
   const [isProcessing, setIsProcessing] = useState(false);
+
+  // NEW: State for Edit Athlete Modal
+  const [editingAthlete, setEditingAthlete] = useState<any>(null);
 
   const router = useRouter();
   const currentYear = new Date().getFullYear();
@@ -76,6 +78,34 @@ export default function AdminDashboard() {
     setIsProcessing(false);
   };
 
+  // NEW: Full Profile Edit Submitter
+  const handleEditSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingAthlete) return;
+    setIsProcessing(true);
+
+    const cleanFamilyId = editingAthlete.family_id?.trim() === "" ? null : editingAthlete.family_id?.trim();
+
+    const { error } = await supabase
+      .from('athletes')
+      .update({
+        name: editingAthlete.name,
+        email: editingAthlete.email,
+        monthly_fee: parseFloat(editingAthlete.monthly_fee),
+        sport: editingAthlete.sport,
+        family_id: cleanFamilyId
+      })
+      .eq('id', editingAthlete.id);
+
+    if (error) {
+      alert(`Error updating profile: ${error.message}`);
+    } else {
+      setEditingAthlete(null);
+      fetchAdminData();
+    }
+    setIsProcessing(false);
+  };
+
   const handleCsvUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -88,7 +118,6 @@ export default function AdminDashboard() {
       
       const newAthletes = lines.map(line => {
         const separator = line.includes(';') ? ';' : ',';
-        // NEW: Expecting a 4th column for sport (optional)
         const [name, email, fee, sport] = line.split(separator);
         const cleanFee = fee ? fee.trim().replace(',', '.') : '30';
         const cleanSport = sport && sport.trim().toLowerCase() === 'padel' ? 'Padel' : 'Ténis';
@@ -158,12 +187,30 @@ export default function AdminDashboard() {
     else fetchAdminData();
   };
 
+  const handleDeleteAthlete = async (id: string, name: string) => {
+    if (!window.confirm(`⚠️ WARNING: Are you absolutely sure you want to PERMANENTLY delete ${name}?\n\nThis will wipe their profile AND all of their payment history. Use the 'Archive' eye icon instead if you want to keep their financial records.`)) {
+      return;
+    }
+
+    const { error: paymentsError } = await supabase.from('payments').delete().eq('athlete_id', id);
+    if (paymentsError) {
+      alert(`Error clearing payments: ${paymentsError.message}`);
+      return;
+    }
+
+    const { error: athleteError } = await supabase.from('athletes').delete().eq('id', id);
+    if (athleteError) {
+      alert(`Error removing athlete: ${athleteError.message}`);
+    } else {
+      fetchAdminData();
+    }
+  };
+
   const updateFee = async (id: string, newFee: string) => {
     await supabase.from('athletes').update({ monthly_fee: parseFloat(newFee) }).eq('id', id);
     fetchAdminData();
   };
 
-  // NEW: Update Sport Reference
   const updateSport = async (id: string, newSport: string) => {
     await supabase.from('athletes').update({ sport: newSport }).eq('id', id);
     fetchAdminData();
@@ -192,7 +239,6 @@ export default function AdminDashboard() {
 
   if (loading) return <div className="min-h-screen flex items-center justify-center bg-[#f8fafc] text-slate-400 font-bold animate-pulse">Authenticating Admin...</div>;
 
-  // Filter athletes by both Active Status AND Sport
   const filteredAthletes = athletes.filter(a => {
     const statusMatch = showInactive || a.is_active;
     const sportMatch = sportFilter === 'All' || a.sport === sportFilter;
@@ -202,6 +248,53 @@ export default function AdminDashboard() {
   return (
     <div className="min-h-screen bg-[#f8fafc] pb-20 relative">
       
+      {/* MODAL: Edit Athlete Profile */}
+      {editingAthlete && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md">
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden border border-slate-200">
+            <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50">
+              <h3 className="text-xl font-black text-slate-900 flex items-center gap-2">
+                <Pencil className="w-5 h-5 text-indigo-600" /> Edit Profile
+              </h3>
+              <button onClick={() => setEditingAthlete(null)} className="text-slate-400 hover:text-slate-600"><X /></button>
+            </div>
+
+            <div className="p-8">
+              <form onSubmit={handleEditSubmit} className="space-y-4">
+                <div>
+                  <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 block mb-2">Full Name</label>
+                  <input required autoFocus type="text" value={editingAthlete.name} onChange={(e) => setEditingAthlete({...editingAthlete, name: e.target.value})} className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-indigo-500 outline-none font-bold text-slate-900" />
+                </div>
+                <div>
+                  <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 block mb-2">Email Address</label>
+                  <input required type="email" value={editingAthlete.email} onChange={(e) => setEditingAthlete({...editingAthlete, email: e.target.value})} className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-indigo-500 outline-none font-bold text-slate-900" />
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 block mb-2">Monthly Fee (€)</label>
+                    <input required type="number" step="0.01" value={editingAthlete.monthly_fee} onChange={(e) => setEditingAthlete({...editingAthlete, monthly_fee: e.target.value})} className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-indigo-500 outline-none font-bold text-slate-900" />
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 block mb-2">Sport</label>
+                    <select value={editingAthlete.sport} onChange={(e) => setEditingAthlete({...editingAthlete, sport: e.target.value})} className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-indigo-500 outline-none font-bold text-slate-900 bg-white">
+                      <option value="Ténis">Ténis</option>
+                      <option value="Padel">Padel</option>
+                    </select>
+                  </div>
+                </div>
+                <div>
+                  <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 block mb-2 flex items-center gap-1"><Home className="w-3 h-3" /> Family Group ID (Optional)</label>
+                  <input type="text" placeholder="e.g. SilvaFamily" value={editingAthlete.family_id || ''} onChange={(e) => setEditingAthlete({...editingAthlete, family_id: e.target.value})} className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-indigo-500 outline-none font-bold text-slate-900" />
+                </div>
+                <button disabled={isProcessing} className="w-full bg-indigo-600 text-white font-black py-4 rounded-xl shadow-lg shadow-indigo-200 hover:bg-indigo-700 transition-all flex items-center justify-center gap-2 mt-2">
+                  {isProcessing ? <Loader2 className="animate-spin w-5 h-5" /> : <Save className="w-5 h-5" />} Save Changes
+                </button>
+              </form>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* MODAL: Add Athlete */}
       {isAddModalOpen && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md">
@@ -329,7 +422,6 @@ export default function AdminDashboard() {
             </h1>
             <p className="text-slate-500 font-medium mt-2">Financial overview for {currentYear}</p>
             
-            {/* NEW: Sport Filter Tabs & Inactive Toggle */}
             <div className="flex flex-col sm:flex-row sm:items-center gap-4 mt-6">
               <div className="flex bg-slate-200/60 p-1 rounded-xl w-fit border border-slate-300/40">
                 {['All', 'Ténis', 'Padel'].map(s => (
@@ -424,7 +516,6 @@ export default function AdminDashboard() {
                 
                 <div className="flex flex-wrap items-center justify-between w-full xl:w-auto gap-6 pt-4 border-t border-slate-100 xl:pt-0 xl:border-none">
                   
-                  {/* NEW: Inline Sport Selector */}
                   <div className="text-left">
                     <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Sport</p>
                     <select 
@@ -466,23 +557,50 @@ export default function AdminDashboard() {
                         <button onClick={() => copyLink(a.secret_token)} className="bg-slate-900 hover:bg-slate-800 text-white py-2 px-4 rounded-xl font-bold text-xs shadow-md flex items-center gap-2 transition-colors">
                           <Share2 className="w-4 h-4" /> Copy Link
                         </button>
+                        
+                        <button 
+                          onClick={() => setEditingAthlete(a)} 
+                          className="bg-white hover:bg-indigo-50 text-slate-400 hover:text-indigo-600 border border-slate-200 hover:border-indigo-200 py-2 px-3 rounded-xl shadow-sm flex items-center transition-all"
+                          title="Edit Profile"
+                        >
+                          <Pencil className="w-4 h-4" />
+                        </button>
+
                         <button 
                           onClick={() => toggleAthleteStatus(a.id, a.is_active, a.name)} 
-                          className="bg-white hover:bg-rose-50 text-slate-300 hover:text-rose-600 border border-slate-200 hover:border-rose-200 py-2 px-3 rounded-xl shadow-sm flex items-center transition-all"
+                          className="bg-white hover:bg-amber-50 text-slate-300 hover:text-amber-600 border border-slate-200 hover:border-amber-200 py-2 px-3 rounded-xl shadow-sm flex items-center transition-all"
                           title="Archive Athlete"
                         >
                           <EyeOff className="w-4 h-4" />
                         </button>
                       </>
                     ) : (
-                      <button 
-                        onClick={() => toggleAthleteStatus(a.id, a.is_active, a.name)} 
-                        className="bg-indigo-50 hover:bg-indigo-100 text-indigo-600 py-2 px-4 rounded-xl font-bold text-xs flex items-center gap-2 transition-all"
-                        title="Reactivate Athlete"
-                      >
-                        <Eye className="w-4 h-4" /> Reactivate
-                      </button>
+                      <>
+                        <button 
+                          onClick={() => setEditingAthlete(a)} 
+                          className="bg-white hover:bg-indigo-50 text-slate-400 hover:text-indigo-600 border border-slate-200 hover:border-indigo-200 py-2 px-3 rounded-xl shadow-sm flex items-center transition-all"
+                          title="Edit Profile"
+                        >
+                          <Pencil className="w-4 h-4" />
+                        </button>
+
+                        <button 
+                          onClick={() => toggleAthleteStatus(a.id, a.is_active, a.name)} 
+                          className="bg-indigo-50 hover:bg-indigo-100 text-indigo-600 py-2 px-4 rounded-xl font-bold text-xs flex items-center gap-2 transition-all"
+                          title="Reactivate Athlete"
+                        >
+                          <Eye className="w-4 h-4" /> Reactivate
+                        </button>
+                      </>
                     )}
+
+                    <button 
+                      onClick={() => handleDeleteAthlete(a.id, a.name)} 
+                      className="bg-white hover:bg-rose-50 text-slate-300 hover:text-rose-600 border border-slate-200 hover:border-rose-200 py-2 px-3 rounded-xl shadow-sm flex items-center transition-all"
+                      title="Permanently Delete Athlete"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
                   </div>
 
                 </div>
