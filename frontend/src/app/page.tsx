@@ -5,7 +5,8 @@ import { useSearchParams } from 'next/navigation';
 import { createClient } from '@supabase/supabase-js';
 import { Upload, CheckCircle2, XCircle, Loader2, Hourglass, CalendarDays, AlertCircle, AlertTriangle, CheckSquare, Square, Users } from 'lucide-react';
 import { Analytics } from '@vercel/analytics/next';
-import { SpeedInsights } from "@vercel/speed-insights/next"
+import { SpeedInsights } from "@vercel/speed-insights/next";
+
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
@@ -174,14 +175,21 @@ function PortalContent() {
   const selectedBillingMonthStr = selectedMonthIndex !== null ? `${currentYear}-${String(selectedMonthIndex + 1).padStart(2, '0')}` : null;
   const selectedPaymentInfo = selectedMonthIndex !== null ? payments.find(p => p.athlete_id === currentAthlete.id && p.billing_month === selectedBillingMonthStr) : null;
 
-  // Estrutura de dados otimizada com Primeiro + Último Nome e divisão por propriedades
+  // Estrutura de dados otimizada com Primeiro + Último Nome, divisão por propriedades e controlo de data de admissão
   const availableMonthsForChecklist: any[] = [];
   familyMembers.forEach(member => {
     months.forEach((name, index) => {
       const monthStr = `${currentYear}-${String(index + 1).padStart(2, '0')}`;
       const status = getPaymentStatusForMonthStr(member.id, monthStr);
       
-      if ((status === 'unpaid' || status === 'rejected') && index <= currentMonthIndex) {
+      // Lógica de Admissão: verificar se este bloco é anterior à data de entrada do membro
+      const joinedDate = member.joined_date ? new Date(member.joined_date) : new Date(`${currentYear}-01-01`);
+      const targetMonthFirstDay = new Date(currentYear, index, 1);
+      const athleteJoinFirstDay = new Date(joinedDate.getFullYear(), joinedDate.getMonth(), 1);
+      const isBeforeRegistration = targetMonthFirstDay < athleteJoinFirstDay;
+      
+      // Apenas adiciona ao checklist se o mês for devido e NÃO for um mês isento (antes da entrada)
+      if ((status === 'unpaid' || status === 'rejected') && index <= currentMonthIndex && !isBeforeRegistration) {
         availableMonthsForChecklist.push({
           compositeKey: `${member.id}:${monthStr}`,
           athleteName: formatShortName(member.name),
@@ -253,7 +261,14 @@ function PortalContent() {
                 const isPaid = paymentForMonth?.status === 'verified';
                 const isPending = paymentForMonth?.status === 'pending' || paymentForMonth?.status === 'processing';
                 const isRejected = paymentForMonth?.status === 'rejected';
-                const canSelect = !isFuture;
+                
+                // Lógica de Admissão: verificar se este bloco é anterior à data de entrada
+                const joinedDate = currentAthlete.joined_date ? new Date(currentAthlete.joined_date) : new Date(`${currentYear}-01-01`);
+                const targetMonthFirstDay = new Date(currentYear, index, 1);
+                const athleteJoinFirstDay = new Date(joinedDate.getFullYear(), joinedDate.getMonth(), 1);
+                const isBeforeRegistration = targetMonthFirstDay < athleteJoinFirstDay;
+
+                const canSelect = !isFuture && !isBeforeRegistration && !isPaid && !isPending;
 
                 return (
                   <div 
@@ -261,6 +276,7 @@ function PortalContent() {
                     onClick={() => canSelect && handleMonthClick(index)}
                     className={`relative p-5 rounded-2xl border transition-all duration-200 
                       ${isFuture ? 'bg-slate-50/50 border-slate-100 opacity-60' : 'bg-white shadow-sm'}
+                      ${isBeforeRegistration ? 'bg-slate-50/40 border-slate-200/40 opacity-40 line-through cursor-default' : ''}
                       ${canSelect ? 'cursor-pointer hover:border-indigo-300 hover:shadow-md' : 'cursor-default'}
                       ${isSelected ? 'ring-2 ring-indigo-600 border-indigo-600 scale-[1.02]' : 'border-slate-200/60'}
                     `}
@@ -269,12 +285,14 @@ function PortalContent() {
                       <p className={`text-sm font-bold ${isSelected ? 'text-indigo-600' : 'text-slate-500'}`}>{monthName}</p>
                       {isPending && <span className="text-[9px] font-bold text-amber-500 uppercase tracking-widest bg-amber-50 px-2 py-0.5 rounded">Pendente</span>}
                       {isRejected && <span className="text-[9px] font-bold text-rose-500 uppercase tracking-widest bg-rose-50 px-2 py-0.5 rounded">Rejeitado</span>}
+                      {isBeforeRegistration && <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest bg-slate-100 px-2 py-0.5 rounded">Isento</span>}
                     </div>
                     
                     <div className="flex items-center justify-center h-12">
                       {isPaid && <CheckCircle2 className="w-10 h-10 text-emerald-500" />}
                       {isPending && <Loader2 className="w-8 h-8 text-amber-500 animate-spin" />}
-                      {(!isPaid && !isPending && !isFuture) && <XCircle className={`w-8 h-8 mx-auto ${isSelected ? 'text-indigo-400' : 'text-rose-400'}`} />}
+                      {isBeforeRegistration && <Hourglass className="w-6 h-6 text-slate-200" />}
+                      {(!isPaid && !isPending && !isFuture && !isBeforeRegistration) && <XCircle className={`w-8 h-8 mx-auto ${isSelected ? 'text-indigo-400' : 'text-rose-400'}`} />}
                       {isFuture && (
                         <div className="flex flex-col items-center">
                           <Hourglass className="w-6 h-6 text-slate-300 mb-1" />
