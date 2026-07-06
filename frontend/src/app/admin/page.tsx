@@ -19,7 +19,6 @@ export default function AdminDashboard() {
   const [selectedMonthData, setSelectedMonthData] = useState<any>(null);
   
   const [showInactive, setShowInactive] = useState(false);
-  // NEW: Sport Filter State
   const [sportFilter, setSportFilter] = useState<'All' | 'Ténis' | 'Padel'>('All');
   
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
@@ -27,7 +26,7 @@ export default function AdminDashboard() {
   const [newName, setNewName] = useState('');
   const [newEmail, setNewEmail] = useState('');
   const [newFee, setNewFee] = useState('30');
-  const [newSport, setNewSport] = useState('Ténis'); // NEW: Default sport for manual add
+  const [newSport, setNewSport] = useState('Ténis');
   const [isProcessing, setIsProcessing] = useState(false);
 
   const router = useRouter();
@@ -88,7 +87,6 @@ export default function AdminDashboard() {
       
       const newAthletes = lines.map(line => {
         const separator = line.includes(';') ? ';' : ',';
-        // NEW: Expecting a 4th column for sport (optional)
         const [name, email, fee, sport] = line.split(separator);
         const cleanFee = fee ? fee.trim().replace(',', '.') : '30';
         const cleanSport = sport && sport.trim().toLowerCase() === 'padel' ? 'Padel' : 'Ténis';
@@ -158,12 +156,31 @@ export default function AdminDashboard() {
     else fetchAdminData();
   };
 
+  // NEW: Hard Delete Function
+  const handleDeleteAthlete = async (id: string, name: string) => {
+    if (!window.confirm(`⚠️ WARNING: Are you absolutely sure you want to PERMANENTLY delete ${name}?\n\nThis will wipe their profile AND all of their payment history. Use the 'Archive' eye icon instead if you want to keep their financial records.`)) {
+      return;
+    }
+
+    const { error: paymentsError } = await supabase.from('payments').delete().eq('athlete_id', id);
+    if (paymentsError) {
+      alert(`Error clearing payments: ${paymentsError.message}`);
+      return;
+    }
+
+    const { error: athleteError } = await supabase.from('athletes').delete().eq('id', id);
+    if (athleteError) {
+      alert(`Error removing athlete: ${athleteError.message}`);
+    } else {
+      fetchAdminData();
+    }
+  };
+
   const updateFee = async (id: string, newFee: string) => {
     await supabase.from('athletes').update({ monthly_fee: parseFloat(newFee) }).eq('id', id);
     fetchAdminData();
   };
 
-  // NEW: Update Sport Reference
   const updateSport = async (id: string, newSport: string) => {
     await supabase.from('athletes').update({ sport: newSport }).eq('id', id);
     fetchAdminData();
@@ -192,7 +209,6 @@ export default function AdminDashboard() {
 
   if (loading) return <div className="min-h-screen flex items-center justify-center bg-[#f8fafc] text-slate-400 font-bold animate-pulse">Authenticating Admin...</div>;
 
-  // Filter athletes by both Active Status AND Sport
   const filteredAthletes = athletes.filter(a => {
     const statusMatch = showInactive || a.is_active;
     const sportMatch = sportFilter === 'All' || a.sport === sportFilter;
@@ -329,7 +345,6 @@ export default function AdminDashboard() {
             </h1>
             <p className="text-slate-500 font-medium mt-2">Financial overview for {currentYear}</p>
             
-            {/* NEW: Sport Filter Tabs & Inactive Toggle */}
             <div className="flex flex-col sm:flex-row sm:items-center gap-4 mt-6">
               <div className="flex bg-slate-200/60 p-1 rounded-xl w-fit border border-slate-300/40">
                 {['All', 'Ténis', 'Padel'].map(s => (
@@ -424,7 +439,6 @@ export default function AdminDashboard() {
                 
                 <div className="flex flex-wrap items-center justify-between w-full xl:w-auto gap-6 pt-4 border-t border-slate-100 xl:pt-0 xl:border-none">
                   
-                  {/* NEW: Inline Sport Selector */}
                   <div className="text-left">
                     <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Sport</p>
                     <select 
@@ -468,7 +482,7 @@ export default function AdminDashboard() {
                         </button>
                         <button 
                           onClick={() => toggleAthleteStatus(a.id, a.is_active, a.name)} 
-                          className="bg-white hover:bg-rose-50 text-slate-300 hover:text-rose-600 border border-slate-200 hover:border-rose-200 py-2 px-3 rounded-xl shadow-sm flex items-center transition-all"
+                          className="bg-white hover:bg-amber-50 text-slate-300 hover:text-amber-600 border border-slate-200 hover:border-amber-200 py-2 px-3 rounded-xl shadow-sm flex items-center transition-all"
                           title="Archive Athlete"
                         >
                           <EyeOff className="w-4 h-4" />
@@ -483,6 +497,14 @@ export default function AdminDashboard() {
                         <Eye className="w-4 h-4" /> Reactivate
                       </button>
                     )}
+
+                    <button 
+                      onClick={() => handleDeleteAthlete(a.id, a.name)} 
+                      className="bg-white hover:bg-rose-50 text-slate-300 hover:text-rose-600 border border-slate-200 hover:border-rose-200 py-2 px-3 rounded-xl shadow-sm flex items-center transition-all"
+                      title="Permanently Delete Athlete"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
                   </div>
 
                 </div>
