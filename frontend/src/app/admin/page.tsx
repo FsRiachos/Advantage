@@ -4,7 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { createClient } from '@supabase/supabase-js';
 import { 
   ShieldCheck, LogOut, Share2, AlertCircle, X, CheckCircle, 
-  XCircle, ExternalLink, UserPlus, FileText, Plus, Upload, Loader2, Mail, Eye, EyeOff, Trash2, Home, Pencil, Save, Banknote, Landmark
+  XCircle, ExternalLink, UserPlus, FileText, Plus, Upload, Loader2, Mail, Eye, EyeOff, Trash2, Home, Pencil, Save, Banknote, Landmark, Settings2
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 
@@ -31,6 +31,9 @@ export default function AdminDashboard() {
   const [isProcessing, setIsProcessing] = useState(false);
 
   const [editingAthlete, setEditingAthlete] = useState<any>(null);
+  
+  // NOVA: Variável para o formulário de exceção dentro do modal
+  const [overrideInput, setOverrideInput] = useState('');
 
   const router = useRouter();
   const currentYear = new Date().getFullYear();
@@ -45,9 +48,10 @@ export default function AdminDashboard() {
   };
 
   const fetchAdminData = async () => {
+    // IMPORTANTE: Juntamos fee_overrides na query
     const { data } = await supabase
       .from('athletes')
-      .select('*, payments(id, status, created_at, amount_detected, billing_month, image_url, reject_reason, transaction_ref)')
+      .select('*, payments(id, status, created_at, amount_detected, billing_month, image_url, reject_reason, transaction_ref), fee_overrides(id, billing_month, override_fee)')
       .order('name');
     setAthletes(data || []);
     setLoading(false);
@@ -211,7 +215,6 @@ export default function AdminDashboard() {
     }
   };
 
-  // NEW: Create a manual record entry for cash or early payments directly
   const handleInjectManualPayment = async (method: 'Dinheiro' | 'Transferência Manual') => {
     if (!selectedMonthData) return;
     setIsProcessing(true);
@@ -220,7 +223,7 @@ export default function AdminDashboard() {
       athlete_id: selectedMonthData.athleteId,
       billing_month: selectedMonthData.billingMonthStr,
       status: 'verified',
-      amount_detected: parseFloat(selectedMonthData.athleteFee),
+      amount_detected: parseFloat(selectedMonthData.athleteFee), // Usa a exceção ou a base
       transaction_ref: method === 'Dinheiro' ? 'CASH_PAYMENT' : 'MANUAL_OVERRIDE',
       reject_reason: `Validado manualmente via Admin (${method})`
     });
@@ -231,6 +234,42 @@ export default function AdminDashboard() {
       setSelectedMonthData(null);
       fetchAdminData();
     }
+    setIsProcessing(false);
+  };
+
+  // NOVA: Funções para Modificar a Exceção
+  const handleApplyFeeOverride = async () => {
+    if (!selectedMonthData || !overrideInput) return;
+    setIsProcessing(true);
+    
+    // Deleta se já existir, para evitar conflitos de constrangimentos únicos de SQL
+    await supabase.from('fee_overrides').delete()
+      .eq('athlete_id', selectedMonthData.athleteId)
+      .eq('billing_month', selectedMonthData.billingMonthStr);
+
+    const { error } = await supabase.from('fee_overrides').insert({
+      athlete_id: selectedMonthData.athleteId,
+      billing_month: selectedMonthData.billingMonthStr,
+      override_fee: parseFloat(overrideInput)
+    });
+
+    if (error) alert(error.message);
+    else {
+      setSelectedMonthData(null);
+      fetchAdminData();
+    }
+    setIsProcessing(false);
+  };
+
+  const handleRemoveFeeOverride = async () => {
+    if (!selectedMonthData) return;
+    setIsProcessing(true);
+    await supabase.from('fee_overrides').delete()
+      .eq('athlete_id', selectedMonthData.athleteId)
+      .eq('billing_month', selectedMonthData.billingMonthStr);
+    
+    setSelectedMonthData(null);
+    fetchAdminData();
     setIsProcessing(false);
   };
 
@@ -310,7 +349,6 @@ export default function AdminDashboard() {
                     </select>
                   </div>
                 </div>
-                {/* NEW: Dynamic Admission Date Field Selector */}
                 <div>
                   <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 block mb-2">Data de Admissão (Início de Faturação)</label>
                   <input required type="date" value={editingAthlete.joined_date || '2026-01-01'} onChange={(e) => setEditingAthlete({...editingAthlete, joined_date: e.target.value})} className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-indigo-500 outline-none font-bold text-slate-900" />
@@ -405,27 +443,54 @@ export default function AdminDashboard() {
                 <h3 className="text-xl font-black text-slate-900">{selectedMonthData.athleteName}</h3>
                 <p className="text-sm font-bold text-slate-500">{selectedMonthData.monthName} {currentYear} &middot; Gestão de Pagamento</p>
               </div>
-              <button onClick={() => setSelectedMonthData(null)} className="p-2 bg-slate-100 rounded-full text-slate-500"><X /></button>
+              <button onClick={() => { setSelectedMonthData(null); setOverrideInput(''); }} className="p-2 bg-slate-100 rounded-full text-slate-500"><X /></button>
             </div>
             
             <div className="overflow-y-auto p-6 flex-1 bg-white space-y-6">
-              {/* NEW: Direct Action Panel for Cash / Manual Override Injections */}
+              
+              {/* NOVA SECÇÃO: Painel de Exceções de Valor */}
+              <div className="p-5 bg-indigo-50/50 border border-indigo-100 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                <div>
+                  <h4 className="text-xs font-black uppercase tracking-wider text-indigo-900 flex items-center gap-1.5"><Settings2 className="w-4 h-4"/> Ajuste de Valor Mensal</h4>
+                  <p className="text-[10px] font-bold text-indigo-400 mt-1">
+                    Valor base atual: €{parseFloat(selectedMonthData.originalFee).toFixed(2)}
+                    {selectedMonthData.hasOverride && <span className="ml-2 px-1.5 py-0.5 bg-indigo-200 text-indigo-800 rounded">Exceção ativa: €{selectedMonthData.athleteFee}</span>}
+                  </p>
+                </div>
+                <div className="flex items-center gap-2 w-full sm:w-auto">
+                  <span className="text-indigo-600 font-black">€</span>
+                  <input 
+                    type="number" 
+                    step="0.01" 
+                    placeholder={selectedMonthData.athleteFee}
+                    value={overrideInput}
+                    onChange={(e) => setOverrideInput(e.target.value)}
+                    className="w-20 px-2 py-1.5 rounded-lg border border-indigo-200 font-bold text-indigo-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  />
+                  <button onClick={handleApplyFeeOverride} disabled={!overrideInput || isProcessing} className="bg-indigo-600 text-white px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-indigo-700 disabled:opacity-50">Gravar</button>
+                  {selectedMonthData.hasOverride && (
+                    <button onClick={handleRemoveFeeOverride} disabled={isProcessing} className="bg-white border border-rose-200 text-rose-600 px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-rose-50"><Trash2 className="w-3.5 h-3.5"/></button>
+                  )}
+                </div>
+              </div>
+
+              {/* Direct Action Panel for Cash / Manual Override Injections */}
               <div className="p-5 bg-slate-50 border border-slate-200 rounded-2xl">
-                <h4 className="text-xs font-black uppercase tracking-wider text-slate-400 mb-3">Registar Pagamento Manual</h4>
+                <h4 className="text-xs font-black uppercase tracking-wider text-slate-400 mb-3 flex items-center gap-1.5">Registar Pagamento Manual</h4>
                 <div className="flex flex-col sm:flex-row gap-3">
                   <button 
                     disabled={isProcessing}
                     onClick={() => handleInjectManualPayment('Dinheiro')}
                     className="flex-1 py-3 bg-emerald-600 text-white font-bold rounded-xl text-xs flex justify-center items-center gap-2 shadow-md hover:bg-emerald-700 transition-colors"
                   >
-                    <Banknote className="w-4 h-4"/> Confirmar Recebimento em Dinheiro (Cash)
+                    <Banknote className="w-4 h-4"/> Recebimento Dinheiro (€{selectedMonthData.athleteFee})
                   </button>
                   <button 
                     disabled={isProcessing}
                     onClick={() => handleInjectManualPayment('Transferência Manual')}
                     className="flex-1 py-3 bg-slate-800 text-white font-bold rounded-xl text-xs flex justify-center items-center gap-2 shadow-md hover:bg-slate-700 transition-colors"
                   >
-                    <Landmark className="w-4 h-4"/> Validar Transferência Manualmente
+                    <Landmark className="w-4 h-4"/> Validar Transferência Externa
                   </button>
                 </div>
               </div>
@@ -464,7 +529,7 @@ export default function AdminDashboard() {
                           <p className="text-2xl font-black text-slate-900">{payment.amount_detected ? `€${payment.amount_detected.toFixed(2)}` : '—'}</p>
                         </div>
                       </div>
-                      {payment.reject_reason && !payment.transaction_ref.includes('CASH') && (
+                      {payment.reject_reason && !payment.transaction_ref?.includes('CASH') && (
                         <div className="p-3 bg-rose-50 border border-rose-100 rounded-xl text-xs text-rose-700">{payment.reject_reason}</div>
                       )}
                       <div className="space-y-2 pt-2 border-t border-slate-100">
@@ -536,7 +601,10 @@ export default function AdminDashboard() {
               const monthPayments = a.payments?.filter((p: any) => p.billing_month === billingMonthStr) || [];
               monthPayments.sort((p1: any, p2: any) => new Date(p2.created_at).getTime() - new Date(p1.created_at).getTime());
 
-              // NEW: Compute dynamic historical threshold check using exact profile joined_date parameters
+              // NOVA LÓGICA DE EXCEÇÃO
+              const override = a.fee_overrides?.find((o: any) => o.billing_month === billingMonthStr);
+              const effectiveFee = override ? override.override_fee : a.monthly_fee;
+
               const joinedDate = a.joined_date ? new Date(a.joined_date) : new Date(`${currentYear}-01-01`);
               const targetMonthFirstDay = new Date(currentYear, index, 1);
               const athleteJoinFirstDay = new Date(joinedDate.getFullYear(), joinedDate.getMonth(), 1);
@@ -550,13 +618,18 @@ export default function AdminDashboard() {
               } else if (monthPayments.some((p: any) => p.status === 'rejected')) {
                 bgColor = 'bg-rose-600 text-white shadow-sm shadow-rose-200';
               } else if (isBeforeRegistration) {
-                // Exempt cell display block for months before they joined
                 bgColor = 'bg-slate-100/40 text-slate-300 border border-slate-200/40 line-through cursor-pointer';
               } else if (index < currentMonthIndex && a.is_active) {
                 bgColor = 'bg-rose-400 text-white shadow-sm shadow-rose-200';
                 overdueCount++;
               }
-              return { initial, name: fullMonths[index], billingMonthStr, bgColor, paymentsArray: monthPayments };
+              
+              // Adiciona uma borda diferente se for uma exceção mas ainda não estiver paga
+              if (override && monthPayments.length === 0 && !isBeforeRegistration) {
+                bgColor += ' border-2 border-indigo-400';
+              }
+
+              return { initial, name: fullMonths[index], billingMonthStr, bgColor, paymentsArray: monthPayments, effectiveFee, hasOverride: !!override };
             });
 
             return (
@@ -580,13 +653,24 @@ export default function AdminDashboard() {
                   </div>
                 </div>
                 
-                {/* MODIFICADO: Todos os blocos de meses agora são sempre clicáveis para abrir o modal de comando manual */}
                 <div className="flex-1 flex gap-1.5 sm:gap-2 overflow-x-auto py-2 w-full">
                   {monthStatuses.map((m, i) => (
                     <div 
                       key={i} 
-                      onClick={() => setSelectedMonthData({ athleteId: a.id, athleteFee: a.monthly_fee, athleteName: a.name, monthName: m.name, billingMonthStr: m.billingMonthStr, payments: m.paymentsArray })} 
-                      title={`${m.name} (${m.paymentsArray.length} carregamentos)`} 
+                      onClick={() => {
+                        setOverrideInput(''); // Limpa o input sempre que abre o modal
+                        setSelectedMonthData({ 
+                          athleteId: a.id, 
+                          originalFee: a.monthly_fee,
+                          athleteFee: m.effectiveFee, 
+                          hasOverride: m.hasOverride,
+                          athleteName: a.name, 
+                          monthName: m.name, 
+                          billingMonthStr: m.billingMonthStr, 
+                          payments: m.paymentsArray 
+                        })
+                      }} 
+                      title={`${m.name} (${m.paymentsArray.length} carregamentos) ${m.hasOverride ? '- Exceção Ativa' : ''}`} 
                       className={`w-8 h-8 rounded-lg flex items-center justify-center text-[10px] font-bold shrink-0 transition-transform cursor-pointer hover:scale-110 ${m.bgColor}`}
                     >
                       {m.initial}
