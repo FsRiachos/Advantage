@@ -4,7 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { createClient } from '@supabase/supabase-js';
 import { 
   ShieldCheck, LogOut, Share2, AlertCircle, X, CheckCircle, 
-  XCircle, ExternalLink, UserPlus, FileText, Plus, Upload, Loader2, Mail, Eye, EyeOff, Trash2, Home, Pencil, Save
+  XCircle, ExternalLink, UserPlus, FileText, Plus, Upload, Loader2, Mail, Eye, EyeOff, Trash2, Home, Pencil, Save, Banknote, Landmark, Settings2
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 
@@ -27,10 +27,13 @@ export default function AdminDashboard() {
   const [newEmail, setNewEmail] = useState('');
   const [newFee, setNewFee] = useState('30');
   const [newSport, setNewSport] = useState('Ténis');
+  const [newJoinedDate, setNewSportJoinedDate] = useState('2026-01-01');
   const [isProcessing, setIsProcessing] = useState(false);
 
-  // NEW: State for Edit Athlete Modal
   const [editingAthlete, setEditingAthlete] = useState<any>(null);
+  
+  // NOVA: Variável para o formulário de exceção dentro do modal
+  const [overrideInput, setOverrideInput] = useState('');
 
   const router = useRouter();
   const currentYear = new Date().getFullYear();
@@ -45,9 +48,10 @@ export default function AdminDashboard() {
   };
 
   const fetchAdminData = async () => {
+    // IMPORTANTE: Juntamos fee_overrides na query
     const { data } = await supabase
       .from('athletes')
-      .select('*, payments(id, status, created_at, amount_detected, billing_month, image_url, reject_reason, transaction_ref)')
+      .select('*, payments(id, status, created_at, amount_detected, billing_month, image_url, reject_reason, transaction_ref), fee_overrides(id, billing_month, override_fee)')
       .order('name');
     setAthletes(data || []);
     setLoading(false);
@@ -63,6 +67,7 @@ export default function AdminDashboard() {
       email: newEmail,
       monthly_fee: parseFloat(newFee),
       sport: newSport,
+      joined_date: newJoinedDate,
       secret_token: crypto.randomUUID(),
       is_active: true
     });
@@ -72,13 +77,13 @@ export default function AdminDashboard() {
       setNewName('');
       setNewEmail('');
       setNewSport('Ténis');
+      setNewSportJoinedDate('2026-01-01');
       setIsAddModalOpen(false);
       fetchAdminData();
     }
     setIsProcessing(false);
   };
 
-  // NEW: Full Profile Edit Submitter
   const handleEditSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingAthlete) return;
@@ -93,7 +98,8 @@ export default function AdminDashboard() {
         email: editingAthlete.email,
         monthly_fee: parseFloat(editingAthlete.monthly_fee),
         sport: editingAthlete.sport,
-        family_id: cleanFamilyId
+        family_id: cleanFamilyId,
+        joined_date: editingAthlete.joined_date
       })
       .eq('id', editingAthlete.id);
 
@@ -118,15 +124,17 @@ export default function AdminDashboard() {
       
       const newAthletes = lines.map(line => {
         const separator = line.includes(';') ? ';' : ',';
-        const [name, email, fee, sport] = line.split(separator);
+        const [name, email, fee, sport, joinedDate] = line.split(separator);
         const cleanFee = fee ? fee.trim().replace(',', '.') : '30';
         const cleanSport = sport && sport.trim().toLowerCase() === 'padel' ? 'Padel' : 'Ténis';
+        const cleanDate = joinedDate ? joinedDate.trim() : '2026-01-01';
 
         return {
           name: name?.trim(),
           email: email?.trim(),
           monthly_fee: parseFloat(cleanFee) || 30,
           sport: cleanSport,
+          joined_date: cleanDate,
           secret_token: crypto.randomUUID(),
           is_active: true
         };
@@ -151,13 +159,14 @@ export default function AdminDashboard() {
 
   const exportLinksCsv = () => {
     const baseUrl = window.location.origin; 
-    const headers = ['Name', 'Email', 'Sport', 'Portal Link', 'Status'];
+    const headers = ['Name', 'Email', 'Sport', 'Joined Date', 'Portal Link', 'Status'];
     const activeAthletes = athletes.filter(a => a.is_active);
 
     const rows = activeAthletes.map(a => [
       `"${(a.name || '').replaceAll('"', '""')}"`, 
       `"${a.email || ''}"`,
       `"${a.sport || 'Ténis'}"`,
+      `"${a.joined_date || '2026-01-01'}"`,
       `"${baseUrl}/?token=${a.secret_token}"`,
       `"Active"`
     ]);
@@ -188,7 +197,7 @@ export default function AdminDashboard() {
   };
 
   const handleDeleteAthlete = async (id: string, name: string) => {
-    if (!window.confirm(`⚠️ WARNING: Are you absolutely sure you want to PERMANENTLY delete ${name}?\n\nThis will wipe their profile AND all of their payment history. Use the 'Archive' eye icon instead if you want to keep their financial records.`)) {
+    if (!window.confirm(`⚠️ WARNING: Are you absolutely sure you want to PERMANENTLY delete ${name}?\n\nThis will wipe their profile AND all of their payment history.`)) {
       return;
     }
 
@@ -204,6 +213,64 @@ export default function AdminDashboard() {
     } else {
       fetchAdminData();
     }
+  };
+
+  const handleInjectManualPayment = async (method: 'Dinheiro' | 'Transferência Manual') => {
+    if (!selectedMonthData) return;
+    setIsProcessing(true);
+
+    const { error } = await supabase.from('payments').insert({
+      athlete_id: selectedMonthData.athleteId,
+      billing_month: selectedMonthData.billingMonthStr,
+      status: 'verified',
+      amount_detected: parseFloat(selectedMonthData.athleteFee), // Usa a exceção ou a base
+      transaction_ref: method === 'Dinheiro' ? 'CASH_PAYMENT' : 'MANUAL_OVERRIDE',
+      reject_reason: `Validado manualmente via Admin (${method})`
+    });
+
+    if (error) {
+      alert(error.message);
+    } else {
+      setSelectedMonthData(null);
+      fetchAdminData();
+    }
+    setIsProcessing(false);
+  };
+
+  // NOVA: Funções para Modificar a Exceção
+  const handleApplyFeeOverride = async () => {
+    if (!selectedMonthData || !overrideInput) return;
+    setIsProcessing(true);
+    
+    // Deleta se já existir, para evitar conflitos de constrangimentos únicos de SQL
+    await supabase.from('fee_overrides').delete()
+      .eq('athlete_id', selectedMonthData.athleteId)
+      .eq('billing_month', selectedMonthData.billingMonthStr);
+
+    const { error } = await supabase.from('fee_overrides').insert({
+      athlete_id: selectedMonthData.athleteId,
+      billing_month: selectedMonthData.billingMonthStr,
+      override_fee: parseFloat(overrideInput)
+    });
+
+    if (error) alert(error.message);
+    else {
+      setSelectedMonthData(null);
+      fetchAdminData();
+    }
+    setIsProcessing(false);
+  };
+
+  const handleRemoveFeeOverride = async () => {
+    if (!selectedMonthData) return;
+    setIsProcessing(true);
+    await supabase.from('fee_overrides').delete()
+      .eq('athlete_id', selectedMonthData.athleteId)
+      .eq('billing_month', selectedMonthData.billingMonthStr);
+    
+    setSelectedMonthData(null);
+    fetchAdminData();
+    setIsProcessing(false);
   };
 
   const updateFee = async (id: string, newFee: string) => {
@@ -259,11 +326,11 @@ export default function AdminDashboard() {
               <button onClick={() => setEditingAthlete(null)} className="text-slate-400 hover:text-slate-600"><X /></button>
             </div>
 
-            <div className="p-8">
+            <div className="p-8 space-y-4">
               <form onSubmit={handleEditSubmit} className="space-y-4">
                 <div>
                   <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 block mb-2">Full Name</label>
-                  <input required autoFocus type="text" value={editingAthlete.name} onChange={(e) => setEditingAthlete({...editingAthlete, name: e.target.value})} className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-indigo-500 outline-none font-bold text-slate-900" />
+                  <input required type="text" value={editingAthlete.name} onChange={(e) => setEditingAthlete({...editingAthlete, name: e.target.value})} className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-indigo-500 outline-none font-bold text-slate-900" />
                 </div>
                 <div>
                   <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 block mb-2">Email Address</label>
@@ -281,6 +348,10 @@ export default function AdminDashboard() {
                       <option value="Padel">Padel</option>
                     </select>
                   </div>
+                </div>
+                <div>
+                  <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 block mb-2">Data de Admissão (Início de Faturação)</label>
+                  <input required type="date" value={editingAthlete.joined_date || '2026-01-01'} onChange={(e) => setEditingAthlete({...editingAthlete, joined_date: e.target.value})} className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-indigo-500 outline-none font-bold text-slate-900" />
                 </div>
                 <div>
                   <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 block mb-2 flex items-center gap-1"><Home className="w-3 h-3" /> Family Group ID (Optional)</label>
@@ -335,6 +406,10 @@ export default function AdminDashboard() {
                       </select>
                     </div>
                   </div>
+                  <div>
+                    <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 block mb-2">Data de Admissão</label>
+                    <input type="date" value={newJoinedDate} onChange={(e) => setNewSportJoinedDate(e.target.value)} className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-indigo-500 outline-none font-bold text-slate-900" />
+                  </div>
                   <button disabled={isProcessing} className="w-full bg-indigo-600 text-white font-black py-4 rounded-xl shadow-lg shadow-indigo-200 hover:bg-indigo-700 transition-all flex items-center justify-center gap-2 mt-2">
                     {isProcessing ? <Loader2 className="animate-spin w-5 h-5" /> : <Plus className="w-5 h-5" />} Add to Roster
                   </button>
@@ -344,7 +419,7 @@ export default function AdminDashboard() {
                   <div className="p-6 bg-indigo-50 rounded-2xl border-2 border-dashed border-indigo-200">
                     <FileText className="w-10 h-10 text-indigo-400 mx-auto mb-4" />
                     <p className="text-sm font-bold text-indigo-900 mb-1">Upload CSV File</p>
-                    <p className="text-[10px] text-indigo-500 font-medium">Format: Name, Email, Fee, Sport<br/>(e.g. John Doe, john@email.com, 30, Padel)</p>
+                    <p className="text-[10px] text-indigo-500 font-medium">Format: Name, Email, Fee, Sport, JoinedDate(YYYY-MM-DD)<br/>(e.g. John Doe, john@email.com, 30, Padel, 2026-03-01)</p>
                   </div>
                   <label className="cursor-pointer block w-full bg-indigo-600 text-white font-black py-4 rounded-xl shadow-lg shadow-indigo-200 hover:bg-indigo-700 transition-all">
                     <span className="flex items-center justify-center gap-2">
@@ -359,55 +434,115 @@ export default function AdminDashboard() {
         </div>
       )}
 
-      {/* MODAL: Payment Inspection */}
+      {/* MODAL: Payment Inspection & Command Center */}
       {selectedMonthData && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm">
           <div className="glass-panel w-full max-w-3xl bg-white rounded-3xl shadow-2xl overflow-hidden border border-slate-200 flex flex-col max-h-[90vh]">
             <div className="flex justify-between items-center p-6 border-b border-slate-100 bg-slate-50/50">
               <div>
                 <h3 className="text-xl font-black text-slate-900">{selectedMonthData.athleteName}</h3>
-                <p className="text-sm font-bold text-slate-500">{selectedMonthData.monthName} {currentYear} &middot; {selectedMonthData.payments.length} Attempt(s)</p>
+                <p className="text-sm font-bold text-slate-500">{selectedMonthData.monthName} {currentYear} &middot; Gestão de Pagamento</p>
               </div>
-              <button onClick={() => setSelectedMonthData(null)} className="p-2 bg-slate-100 rounded-full text-slate-500"><X /></button>
+              <button onClick={() => { setSelectedMonthData(null); setOverrideInput(''); }} className="p-2 bg-slate-100 rounded-full text-slate-500"><X /></button>
             </div>
-            <div className="overflow-y-auto p-6 flex-1 bg-white">
-              {selectedMonthData.payments.map((payment: any, index: number) => (
-                <div key={payment.id} className="mb-8 last:mb-0 pb-8 last:pb-0 border-b border-slate-100 last:border-0 grid grid-cols-1 md:grid-cols-2 gap-6 relative">
-                  <div className="absolute -top-3 -left-3 bg-slate-800 text-white text-[10px] font-black px-2 py-1 rounded-lg z-10">ATTEMPT {selectedMonthData.payments.length - index}</div>
-                  <div className="bg-slate-100 rounded-2xl h-64 flex items-center justify-center overflow-hidden border border-slate-200 relative group">
-                    {payment.image_url ? (
-                      <>
-                        <img src={payment.image_url} className="object-contain w-full h-full" alt="Receipt" />
-                        <a href={payment.image_url} target="_blank" rel="noreferrer" className="absolute bottom-4 right-4 bg-white/90 p-2 rounded-lg shadow opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-2 text-xs font-bold text-slate-700">
-                          <ExternalLink className="w-4 h-4" /> Open
-                        </a>
-                      </>
-                    ) : (
-                      <span className="text-slate-400 font-bold">No Image</span>
-                    )}
-                  </div>
-                  <div className="flex flex-col justify-center space-y-4">
-                    <div className="flex justify-between items-start">
-                      <div>
-                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Status</p>
-                        <span className={`px-3 py-1 rounded-full text-xs font-black uppercase tracking-wider ${payment.status === 'verified' ? 'bg-emerald-100 text-emerald-700' : payment.status === 'rejected' ? 'bg-rose-100 text-rose-700' : 'bg-amber-100 text-amber-700'}`}>{payment.status}</span>
-                      </div>
-                      <div className="text-right">
-                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Detected</p>
-                        <p className="text-2xl font-black text-slate-900">{payment.amount_detected ? `€${payment.amount_detected.toFixed(2)}` : '—'}</p>
-                      </div>
-                    </div>
-                    {payment.reject_reason && <div className="p-3 bg-rose-50 border border-rose-100 rounded-xl text-xs text-rose-700">{payment.reject_reason}</div>}
-                    <div className="space-y-2 pt-2 border-t border-slate-100">
-                      <div className="flex gap-2">
-                        <button onClick={() => handleOverrideStatus(payment.id, 'verified')} className="flex-1 py-2 bg-emerald-50 text-emerald-700 font-bold rounded-xl text-xs flex justify-center items-center gap-1"><CheckCircle className="w-4 h-4"/> Verify</button>
-                        <button onClick={() => handleOverrideStatus(payment.id, 'rejected')} className="flex-1 py-2 bg-rose-50 text-rose-700 font-bold rounded-xl text-xs flex justify-center items-center gap-1"><XCircle className="w-4 h-4"/> Reject</button>
-                      </div>
-                      <button onClick={() => handleDeletePayment(payment.id)} className="w-full py-2 text-slate-400 hover:text-rose-600 font-bold text-xs flex justify-center items-center gap-1"><Trash2 className="w-4 h-4"/> Delete Record</button>
-                    </div>
-                  </div>
+            
+            <div className="overflow-y-auto p-6 flex-1 bg-white space-y-6">
+              
+              {/* NOVA SECÇÃO: Painel de Exceções de Valor */}
+              <div className="p-5 bg-indigo-50/50 border border-indigo-100 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                <div>
+                  <h4 className="text-xs font-black uppercase tracking-wider text-indigo-900 flex items-center gap-1.5"><Settings2 className="w-4 h-4"/> Ajuste de Valor Mensal</h4>
+                  <p className="text-[10px] font-bold text-indigo-400 mt-1">
+                    Valor base atual: €{parseFloat(selectedMonthData.originalFee).toFixed(2)}
+                    {selectedMonthData.hasOverride && <span className="ml-2 px-1.5 py-0.5 bg-indigo-200 text-indigo-800 rounded">Exceção ativa: €{selectedMonthData.athleteFee}</span>}
+                  </p>
                 </div>
-              ))}
+                <div className="flex items-center gap-2 w-full sm:w-auto">
+                  <span className="text-indigo-600 font-black">€</span>
+                  <input 
+                    type="number" 
+                    step="0.01" 
+                    placeholder={selectedMonthData.athleteFee}
+                    value={overrideInput}
+                    onChange={(e) => setOverrideInput(e.target.value)}
+                    className="w-20 px-2 py-1.5 rounded-lg border border-indigo-200 font-bold text-indigo-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  />
+                  <button onClick={handleApplyFeeOverride} disabled={!overrideInput || isProcessing} className="bg-indigo-600 text-white px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-indigo-700 disabled:opacity-50">Gravar</button>
+                  {selectedMonthData.hasOverride && (
+                    <button onClick={handleRemoveFeeOverride} disabled={isProcessing} className="bg-white border border-rose-200 text-rose-600 px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-rose-50"><Trash2 className="w-3.5 h-3.5"/></button>
+                  )}
+                </div>
+              </div>
+
+              {/* Direct Action Panel for Cash / Manual Override Injections */}
+              <div className="p-5 bg-slate-50 border border-slate-200 rounded-2xl">
+                <h4 className="text-xs font-black uppercase tracking-wider text-slate-400 mb-3 flex items-center gap-1.5">Registar Pagamento Manual</h4>
+                <div className="flex flex-col sm:flex-row gap-3">
+                  <button 
+                    disabled={isProcessing}
+                    onClick={() => handleInjectManualPayment('Dinheiro')}
+                    className="flex-1 py-3 bg-emerald-600 text-white font-bold rounded-xl text-xs flex justify-center items-center gap-2 shadow-md hover:bg-emerald-700 transition-colors"
+                  >
+                    <Banknote className="w-4 h-4"/> Recebimento Dinheiro (€{selectedMonthData.athleteFee})
+                  </button>
+                  <button 
+                    disabled={isProcessing}
+                    onClick={() => handleInjectManualPayment('Transferência Manual')}
+                    className="flex-1 py-3 bg-slate-800 text-white font-bold rounded-xl text-xs flex justify-center items-center gap-2 shadow-md hover:bg-slate-700 transition-colors"
+                  >
+                    <Landmark className="w-4 h-4"/> Validar Transferência Externa
+                  </button>
+                </div>
+              </div>
+
+              {selectedMonthData.payments.length === 0 ? (
+                <div className="text-center py-12 text-slate-400 font-medium border-2 border-dashed border-slate-100 rounded-2xl">
+                  Nenhum comprovativo enviado pelo atleta para este mês.
+                </div>
+              ) : (
+                selectedMonthData.payments.map((payment: any, index: number) => (
+                  <div key={payment.id} className="pb-8 border-b border-slate-100 last:border-0 grid grid-cols-1 md:grid-cols-2 gap-6 relative pt-4">
+                    <div className="absolute top-0 left-0 bg-slate-800 text-white text-[10px] font-black px-2 py-1 rounded-lg z-10">TENTATIVA {selectedMonthData.payments.length - index}</div>
+                    <div className="bg-slate-100 rounded-2xl h-64 flex items-center justify-center overflow-hidden border border-slate-200 relative group">
+                      {payment.image_url ? (
+                        <>
+                          <img src={payment.image_url} className="object-contain w-full h-full" alt="Receipt" />
+                          <a href={payment.image_url} target="_blank" rel="noreferrer" className="absolute bottom-4 right-4 bg-white/90 p-2 rounded-lg shadow opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-2 text-xs font-bold text-slate-700">
+                            <ExternalLink className="w-4 h-4" /> Open
+                          </a>
+                        </>
+                      ) : (
+                        <div className="text-center p-4">
+                          <Banknote className="w-8 h-8 text-emerald-500 mx-auto mb-2" />
+                          <span className="text-slate-500 text-xs font-bold">{payment.reject_reason || 'Manual'}</span>
+                        </div>
+                      )}
+                    </div>
+                    <div className="flex flex-col justify-center space-y-4">
+                      <div className="flex justify-between items-start">
+                        <div>
+                          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Status</p>
+                          <span className={`px-3 py-1 rounded-full text-xs font-black uppercase tracking-wider ${payment.status === 'verified' ? 'bg-emerald-100 text-emerald-700' : payment.status === 'rejected' ? 'bg-rose-100 text-rose-700' : 'bg-amber-100 text-amber-700'}`}>{payment.status}</span>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Detected</p>
+                          <p className="text-2xl font-black text-slate-900">{payment.amount_detected ? `€${payment.amount_detected.toFixed(2)}` : '—'}</p>
+                        </div>
+                      </div>
+                      {payment.reject_reason && !payment.transaction_ref?.includes('CASH') && (
+                        <div className="p-3 bg-rose-50 border border-rose-100 rounded-xl text-xs text-rose-700">{payment.reject_reason}</div>
+                      )}
+                      <div className="space-y-2 pt-2 border-t border-slate-100">
+                        <div className="flex gap-2">
+                          <button onClick={() => handleOverrideStatus(payment.id, 'verified')} className="flex-1 py-2 bg-emerald-50 text-emerald-700 font-bold rounded-xl text-xs flex justify-center items-center gap-1"><CheckCircle className="w-4 h-4"/> Forçar Visto</button>
+                          <button onClick={() => handleOverrideStatus(payment.id, 'rejected')} className="flex-1 py-2 bg-rose-50 text-rose-700 font-bold rounded-xl text-xs flex justify-center items-center gap-1"><XCircle className="w-4 h-4"/> Rejeitar</button>
+                        </div>
+                        <button onClick={() => handleDeletePayment(payment.id)} className="w-full py-2 text-slate-400 hover:text-rose-600 font-bold text-xs flex justify-center items-center gap-1"><Trash2 className="w-4 h-4"/> Remover Registo</button>
+                      </div>
+                    </div>
+                  </div>
+                ))
+              )}
             </div>
           </div>
         </div>
@@ -466,6 +601,15 @@ export default function AdminDashboard() {
               const monthPayments = a.payments?.filter((p: any) => p.billing_month === billingMonthStr) || [];
               monthPayments.sort((p1: any, p2: any) => new Date(p2.created_at).getTime() - new Date(p1.created_at).getTime());
 
+              // NOVA LÓGICA DE EXCEÇÃO
+              const override = a.fee_overrides?.find((o: any) => o.billing_month === billingMonthStr);
+              const effectiveFee = override ? override.override_fee : a.monthly_fee;
+
+              const joinedDate = a.joined_date ? new Date(a.joined_date) : new Date(`${currentYear}-01-01`);
+              const targetMonthFirstDay = new Date(currentYear, index, 1);
+              const athleteJoinFirstDay = new Date(joinedDate.getFullYear(), joinedDate.getMonth(), 1);
+              const isBeforeRegistration = targetMonthFirstDay < athleteJoinFirstDay;
+
               let bgColor = 'bg-slate-100 text-slate-400';
               if (monthPayments.some((p: any) => p.status === 'verified')) {
                 bgColor = 'bg-emerald-500 text-white shadow-sm shadow-emerald-200';
@@ -473,11 +617,19 @@ export default function AdminDashboard() {
                 bgColor = 'bg-amber-400 text-white animate-pulse';
               } else if (monthPayments.some((p: any) => p.status === 'rejected')) {
                 bgColor = 'bg-rose-600 text-white shadow-sm shadow-rose-200';
+              } else if (isBeforeRegistration) {
+                bgColor = 'bg-slate-100/40 text-slate-300 border border-slate-200/40 line-through cursor-pointer';
               } else if (index < currentMonthIndex && a.is_active) {
                 bgColor = 'bg-rose-400 text-white shadow-sm shadow-rose-200';
                 overdueCount++;
               }
-              return { initial, name: fullMonths[index], bgColor, paymentsArray: monthPayments };
+              
+              // Adiciona uma borda diferente se for uma exceção mas ainda não estiver paga
+              if (override && monthPayments.length === 0 && !isBeforeRegistration) {
+                bgColor += ' border-2 border-indigo-400';
+              }
+
+              return { initial, name: fullMonths[index], billingMonthStr, bgColor, paymentsArray: monthPayments, effectiveFee, hasOverride: !!override };
             });
 
             return (
@@ -496,7 +648,7 @@ export default function AdminDashboard() {
                       <Mail className="w-3 h-3" /> {a.email || 'No email provided'}
                     </p>
                     <p className={`text-xs font-bold flex items-center gap-1 ${!a.is_active ? 'text-slate-400' : overdueCount > 0 ? 'text-rose-500' : 'text-emerald-500'}`}>
-                      {!a.is_active ? 'Archived Account' : overdueCount > 0 ? <><AlertCircle className="w-3 h-3" /> {overdueCount} overdue</> : 'Up to date'}
+                      {!a.is_active ? 'Archived Account' : overdueCount > 0 ? <><AlertCircle className="w-3 h-3" /> {overdueCount} em atraso</> : 'Regularizado'}
                     </p>
                   </div>
                 </div>
@@ -505,9 +657,21 @@ export default function AdminDashboard() {
                   {monthStatuses.map((m, i) => (
                     <div 
                       key={i} 
-                      onClick={() => m.paymentsArray.length > 0 && setSelectedMonthData({ athleteName: a.name, monthName: m.name, payments: m.paymentsArray })} 
-                      title={`${m.name} (${m.paymentsArray.length} uploads)`} 
-                      className={`w-8 h-8 rounded-lg flex items-center justify-center text-[10px] font-bold shrink-0 transition-transform ${!a.is_active && m.paymentsArray.length === 0 ? 'bg-slate-100 text-slate-300' : m.bgColor} ${m.paymentsArray.length > 0 ? 'cursor-pointer hover:scale-110' : ''}`}
+                      onClick={() => {
+                        setOverrideInput(''); // Limpa o input sempre que abre o modal
+                        setSelectedMonthData({ 
+                          athleteId: a.id, 
+                          originalFee: a.monthly_fee,
+                          athleteFee: m.effectiveFee, 
+                          hasOverride: m.hasOverride,
+                          athleteName: a.name, 
+                          monthName: m.name, 
+                          billingMonthStr: m.billingMonthStr, 
+                          payments: m.paymentsArray 
+                        })
+                      }} 
+                      title={`${m.name} (${m.paymentsArray.length} carregamentos) ${m.hasOverride ? '- Exceção Ativa' : ''}`} 
+                      className={`w-8 h-8 rounded-lg flex items-center justify-center text-[10px] font-bold shrink-0 transition-transform cursor-pointer hover:scale-110 ${m.bgColor}`}
                     >
                       {m.initial}
                     </div>
